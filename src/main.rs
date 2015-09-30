@@ -1,0 +1,223 @@
+/// Filemerge
+/// Takes a series of files that are assumed to be sorted based on your merge key
+/// Splits each line based on a user supplied delimiter
+/// Extracts a specific column to use as the merge key
+/// Merges all files together into a single stream based on the merge key
+
+// Crate for easily parsing cmd line args
+extern crate getopts;
+
+// Crates for handling compressed files
+extern crate flate2;
+extern crate bzip2;
+
+// Create for glob
+extern crate glob;
+
+// Crate for logging
+#[macro_use] extern crate log;
+extern crate env_logger;
+
+// Command line parsing
+use getopts::Options;
+use std::env;
+
+// Bring in the modules
+mod cache_handler;
+use cache_handler::CacheFileManager;
+
+mod merge_file;
+use merge_file::MergeFile;
+
+fn print_usage(program: &str, opts: Options) {
+    let usage = format!("\nUsage: {} [-h] [-v] -- See below for all options", program);
+    println!("{}", opts.usage(&usage));
+}
+
+fn main() {
+    // Get all the arguments given by the user
+    let args: Vec<String> = env::args().collect();
+
+    // Take a copy of the first parameter (usually relative/path/to/name of binary)
+    let program = args[0].clone();
+
+    // Create a new Options class and assign the parameters
+    let mut opts = Options::new();
+
+    // General options
+    opts.optflag("h", "help", "Print out this help.");
+    opts.optflagmulti("v", "verbose", "Prints out more info (able to be applied up to 3 times)");
+
+    // Merge key options (required for both emitting and caching)
+    opts.optopt("", "delimiter", "Delimiter we split the line on", "tsv || csv || psv");
+    opts.optopt("", "index", "Column index we will use for the merge key", "0 -> len(line) - 1");
+
+    // File selection options
+    // * If just glob(s) are provided, we will emit directly from all files (slower!)
+    // * If just the cache-file is provided we will emit from the stored cache (quicker!)
+    // * If both options are provided we will cache what the glob(s) provide into the cache-file
+    opts.optmulti("", "glob", "File glob that will provide all required files", "/path/to/specific_*_files.*.gz");
+    opts.optopt("", "cache-file", "Cache file containing files we could merge and their upper and lower merge keys", "/path/to/file.cache");
+
+    // Emit options (only required if emitting logs)
+    opts.optopt("", "key-start", "Lower bound (starting from and including) merge key", "1");
+    opts.optopt("", "key-end", "Upper bound (up to but not including) merge key", "10");
+
+    // Parse the user provided parameters matching them to the options specified above
+    let matches = match opts.parse(&args[1..]) {
+        Ok(matches) => { matches }
+        Err(failure) => {
+            panic!(failure.to_string())
+        }
+    };
+
+    // Check if the 'h' flag was present, print the usage if it was, then exit
+    if matches.opt_present("h") {
+        print_usage(&program, opts);
+        return;
+    }
+
+    // If the user wants verbose, THEN GIVE THEM MORE
+    match matches.opt_count("v") {
+        0 => {env::set_var("RUST_LOG", "warn")},
+        1 => {env::set_var("RUST_LOG", "info")},
+        2 => {env::set_var("RUST_LOG", "debug")},
+        666 => {panic!("EEEEVVVVIIIILLLLL!")},
+        _ => {env::set_var("RUST_LOG", "trace")}, // Provided >2 -v flags
+    }
+
+    env_logger::init().unwrap();
+
+    debug!("Applied log level: {}", env::var("RUST_LOG").unwrap());
+
+    // Verify the --delimiter parameter
+    if ! matches.opt_present("delimiter") {
+        print_usage(&program, opts);
+        return;
+    }
+
+    let delimiter = match matches.opt_str("delimiter").unwrap().as_ref() {
+        "tsv" => {'\t'},
+        "csv" => {','},
+        "psv" => {'|'},
+        _ => {panic!("Unknown delimiter, valid choices: tsv, csv or psv")}
+    };
+
+    debug!("We got a delimiter of: {}", matches.opt_str("delimiter").unwrap());
+
+    // Verify the --index parameter
+    if ! matches.opt_present("index") {
+        print_usage(&program, opts);
+        return;
+    }
+
+    let index = matches.opt_str("index").unwrap().parse::<usize>().unwrap();
+
+    debug!("We got an --index of {}", index);
+
+    // Verify the --glob parameter(s)
+    let mut glob_present = false;
+    let mut glob_choices = Vec::new();
+
+    if matches.opt_present("glob") {
+        glob_present = true;
+        glob_choices = matches.opt_strs("glob");
+    }
+
+    if glob_present {
+        for glob_choice in &glob_choices {
+            debug!("We got the following glob: {:?}", glob_choice);
+        }
+    } else {
+        debug!("We didn't get any globs!");
+    }
+
+    // Verify the --cache-file parameter
+    let mut cache_present = false;
+    let mut cache_filename = String::new();
+
+    if matches.opt_present("cache-file") {
+        cache_present = true;
+        cache_filename = matches.opt_str("cache-file").unwrap();
+    }
+
+    if cache_present {
+        debug!("We got the following cache-file: {}", cache_filename);
+    } else {
+        debug!("We didn't get any cache-file!");
+    }
+
+    // Check that at least one required arg is present
+    if ! glob_present && ! cache_present {
+        error!("Missing both glob and cache-file, we need at least one of them.");
+        print_usage(&program, opts);
+        return;
+    }
+
+    // key-start
+    let mut key_start = String::new();
+    if matches.opt_present("key-start") {
+        key_start = matches.opt_str("key-start").unwrap();
+    }
+
+    if key_start != String::new() {
+        debug!("key-start was set to: {}", key_start);
+    }
+
+    // key-end
+    let mut key_end = String::new();
+    if matches.opt_present("key-end") {
+        key_end = matches.opt_str("key-end").unwrap();
+    }
+
+    if key_end != String::new() {
+        debug!("key-end was set to: {}", key_end);
+    }
+
+    // Set up the merge_cache
+    let mut merge_cache: Vec<MergeFile> = Vec::new();
+
+    if cache_present {
+        let cache_file_reader = CacheFileManager::new(&cache_filename);
+
+        for cache_file_entry in cache_file_reader {
+            println!("Cache Line: '{:?}'", cache_file_entry);
+        }
+    } else {
+        info!("We didn't get any cache-file, loading from globs and merging directly!");
+    }
+
+    if glob_present {
+        debug!("Getting all files from the glob(s)!");
+
+        // Fill the merge_cache with all files from the glob
+        for glob_choice in &glob_choices {
+            for result in glob::glob(glob_choice.as_ref()).unwrap() {
+                match result {
+                    Ok(path) => {
+                        // Check if the file is already in the cache and the same size
+
+                        // Add it into the cache if it isn't
+                        merge_cache.push(MergeFile::new(&path, delimiter, index))
+                    },
+                    Err(e) => error!("{:?}", e),
+                }
+            }
+        }
+
+        if cache_present {
+            // Write out the merge_cache to disk as the new cache file
+            debug!("Creating new cache file");
+
+            // For each file in the cache fast forward it all the way through
+            // Record its start and end, writing it out to a new cache file
+        } else {
+            // Cache not preset, merge the globs directly
+            debug!("Merging the files with no cache present");
+        }
+
+        for mut merge_file in merge_cache {
+            merge_file.fast_forward(123.0);
+        }
+    }
+}
