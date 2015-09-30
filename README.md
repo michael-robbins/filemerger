@@ -6,6 +6,6 @@ It is written in the Rust programming language as an initial foray into the lang
 
 ##Features
 * Ability to generate, store and later utilize a cache of files to perform the sort on (this is useful for batch processing)
-* Able to merge on any column within a file for any type that implements the PartialOrd trait
+* Able to merge on any single column within a file
 * Supports TSV/CSV/PSV files as currently we hard code the supported delimiters
 * Low memory overhead as we only store the 'current' line of each merge file in memory
