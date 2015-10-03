@@ -4,30 +4,20 @@
 /// Extracts a specific column to use as the merge key
 /// Merges all files together into a single stream based on the merge key
 
-// Crate for easily parsing cmd line args
 extern crate getopts;
-
-// Crates for handling compressed files
 extern crate flate2;
 extern crate bzip2;
-
-// Create for glob
 extern crate glob;
 
-// Crate for logging
 #[macro_use] extern crate log;
 extern crate env_logger;
 
-// Command line parsing
 use getopts::Options;
+use std::path::Path;
 use std::env;
 
-// Bring in the modules
-mod cache_handler;
-use cache_handler::CacheFileManager;
-
 mod merge_file;
-use merge_file::MergeFile;
+use merge_file::MergeFileManager;
 
 fn print_usage(program: &str, opts: Options) {
     let usage = format!("\nUsage: {} [-h] [-v] -- See below for all options", program);
@@ -175,34 +165,20 @@ fn main() {
     }
 
     // Set up the merge_cache
-    let mut merge_cache: Vec<MergeFile> = Vec::new();
+    let mut merge_manager = MergeFileManager::new();
 
     if cache_present {
-        let cache_file_reader = CacheFileManager::new(&cache_filename);
-
-        for cache_file_entry in cache_file_reader {
-            println!("Cache Line: '{:?}'", cache_file_entry);
-        }
+        let result = merge_manager.load_from_cache(Path::new(&cache_filename), delimiter, index);
+        println!("{}", result.unwrap())
     } else {
         info!("We didn't get any cache-file, loading from globs and merging directly!");
     }
 
     if glob_present {
         debug!("Getting all files from the glob(s)!");
-
-        // Fill the merge_cache with all files from the glob
-        for glob_choice in &glob_choices {
-            for result in glob::glob(glob_choice.as_ref()).unwrap() {
-                match result {
-                    Ok(path) => {
-                        // Check if the file is already in the cache and the same size
-
-                        // Add it into the cache if it isn't
-                        merge_cache.push(MergeFile::new(&path, delimiter, index))
-                    },
-                    Err(e) => error!("{:?}", e),
-                }
-            }
+        for glob_choice in glob_choices {
+            let result = merge_manager.load_from_glob(&glob_choice, delimiter, index);
+            debug!("Added glob {} to the cache with: {}", glob_choice, result.unwrap());
         }
 
         if cache_present {
@@ -211,13 +187,23 @@ fn main() {
 
             // For each file in the cache fast forward it all the way through
             // Record its start and end, writing it out to a new cache file
-        } else {
-            // Cache not preset, merge the globs directly
-            debug!("Merging the files with no cache present");
-        }
+            //merge_manager.fast_forward_to_end();
 
-        for mut merge_file in merge_cache {
-            merge_file.fast_forward(123.0);
+            // Bail early as glob + cache == don't perform merge
+            return;
         }
     }
+
+    // We prepare for the merge by fast forwarding all the merge files to the start of the merge key
+    merge_manager.fast_forward_cache(&key_start);
+
+    // Begin the merge process
+    if matches.opt_present("key-end") {
+        info!("Beginning merge -> {}", &key_end);
+    } else {
+        info!("Beginning merge -> EOF");
+    }
+
+    merge_manager.begin_merge(&key_end);
+
 }
