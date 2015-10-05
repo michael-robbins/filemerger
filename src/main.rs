@@ -187,6 +187,9 @@ fn main() {
             // Record its start and end, writing it out to a new cache file
             //merge_manager.fast_forward_to_end();
 
+            // Write the internal cache out to disk
+            //merge_manager.write_cache();
+
             // Bail early as glob + cache == don't perform merge
             return;
         }

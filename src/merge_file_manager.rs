@@ -1,16 +1,15 @@
 
-// File IO stuff
-use std::io::prelude::*;
-use std::fs::File;
-use std::io::Lines;
-use std::error::Error;
-use std::io::BufReader;
-use std::path::Path;
 
+use std::collections::HashMap;
+use std::io::prelude::*;
+use std::io::BufReader;
+use std::error::Error;
+use std::path::Path;
+use std::io::Lines;
+use std::fs::File;
+use glob::glob;
 use std::cmp;
 use std::fmt;
-
-use glob::glob;
 
 // Optional decompressors for merge files
 use flate2::read::GzDecoder;
@@ -29,14 +28,15 @@ pub struct MergeFile {
 }
 
 pub struct MergeFileManager {
-    pub cache: Vec<MergeFile>,
+    pub cache: HashMap<String, MergeFile>,
 }
 
 impl MergeFile {
-    pub fn new(filepath: &Path, delimiter: char, index: usize) -> Result<MergeFile, String> {
+    pub fn new(filename: &String, delimiter: char, index: usize) -> Result<MergeFile, String> {
         // Open the input file
+        let filepath = Path::new(filename);
         let file = match File::open(filepath) {
-            Err(_) => return Err(format!("Failed to open file {:?}", filepath.to_str().unwrap())),
+            Err(_) => return Err(format!("Failed to open file {:?}", filepath)),
             Ok(file) => file,
         };
 
@@ -84,11 +84,11 @@ impl MergeFile {
 impl MergeFileManager {
     pub fn new() -> MergeFileManager {
         // Allocate an empty cache and return it
-        let cache: Vec<MergeFile> = Vec::new();
+        let cache = HashMap::new();
         MergeFileManager{cache: cache}
     }
 
-    pub fn add_file(&mut self, filepath: &Path, delimiter: char, index: usize) -> Result<&'static str, &'static str> {
+    pub fn add_file(&mut self, filepath: &String, delimiter: char, index: usize) -> Result<&'static str, &'static str> {
         // Create the merge file
         let merge_file = MergeFile::new(filepath, delimiter, index);
 
@@ -106,7 +106,7 @@ impl MergeFileManager {
         // Remember the initial merge_key of the file
         merge_file.beginning_merge_key = iter_result.unwrap().0;
 
-        self.cache.push(merge_file);
+        self.cache.insert(filepath.clone(), merge_file);
         return Ok("File added to cache!");
     }
 
@@ -115,10 +115,12 @@ impl MergeFileManager {
         for result in glob(glob_choice.as_ref()).unwrap() {
             match result {
                 Ok(path) => {
+                    let filename = path.to_str().unwrap().to_string();
+
                     // Check if the file is already in the cache and the same size
 
                     // Add it into the cache if it isn't
-                    let _ = self.add_file(&path, delimiter, index);
+                    let _ = self.add_file(&filename, delimiter, index);
                 },
                 Err(e) => {
                     debug!("Unable to load {:?} we got from the glob {}", e, glob_choice);
@@ -149,8 +151,8 @@ impl MergeFileManager {
             }
 
             // We should totally verify the filename exists locally first?
-
-            let cache_entry_filepath = Path::new(cache_line[0]);
+            let cache_entry_filename = cache_line[0].to_string();
+            let cache_entry_filepath = Path::new(&cache_entry_filename);
             let cache_entry_file_result = File::open(cache_entry_filepath.clone());
 
             if cache_entry_file_result.is_err() {
@@ -167,17 +169,14 @@ impl MergeFileManager {
                 continue;
             }
 
-            let _ = self.add_file(&cache_entry_filepath, delimiter, index);
+            let _ = self.add_file(&cache_entry_filename, delimiter, index);
         }
-
-        // Sort the cache based on merge_key_start
-        self.cache.sort();
 
         Ok(format!("Loaded all files we could from {:?}", cache_filepath))
     }
 
     pub fn fast_forward_cache(&mut self, merge_start: &String) {
-        for merge_file in self.cache.iter_mut() {
+        for (_, merge_file) in self.cache.iter_mut() {
             println!("Fast Forwarding MergeFile {:?} -> {}", &merge_file, &merge_start);
             merge_file.fast_forward(&merge_start);
         }
