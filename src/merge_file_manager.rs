@@ -129,10 +129,10 @@ impl MergeFileManager {
         Ok(format!("Loaded all files we could from glob {:?}", glob_choice))
     }
 
-    pub fn load_from_cache(&mut self, cache_filepath: &Path, delimiter: char, index: usize) -> Result<String, String> {
+    pub fn load_from_cache(&mut self, cache_filepath: &String, delimiter: char, index: usize) -> Result<String, String> {
         // Load the file
-        let cache_file = match File::open(cache_filepath) {
-            Err(why) => return Err(format!("ERROR: Count't open input file {}: {}", cache_filepath.to_str().unwrap(), Error::description(&why))),
+        let cache_file = match File::open(Path::new(cache_filepath)) {
+            Err(why) => return Err(format!("ERROR: Count't open input file {}: {}", cache_filepath, Error::description(&why))),
             Ok(file) => BufReader::new(file),
         };
 
@@ -173,7 +173,7 @@ impl MergeFileManager {
         // Sort the cache based on merge_key_start
         self.cache.sort();
 
-        Ok(format!("Loaded all files we could from {:?}", cache_filepath.to_str()))
+        Ok(format!("Loaded all files we could from {:?}", cache_filepath))
     }
 
     pub fn fast_forward_cache(&mut self, merge_start: &String) {

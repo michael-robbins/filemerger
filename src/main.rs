@@ -4,20 +4,18 @@
 /// Extracts a specific column to use as the merge key
 /// Merges all files together into a single stream based on the merge key
 
+#[macro_use] extern crate log;
+extern crate env_logger;
 extern crate getopts;
 extern crate flate2;
 extern crate bzip2;
 extern crate glob;
 
-#[macro_use] extern crate log;
-extern crate env_logger;
+mod merge_file_manager;
 
+use merge_file_manager::MergeFileManager;
 use getopts::Options;
-use std::path::Path;
 use std::env;
-
-mod merge_file;
-use merge_file::MergeFileManager;
 
 fn print_usage(program: &str, opts: Options) {
     let usage = format!("\nUsage: {} [-h] [-v] -- See below for all options", program);
@@ -168,7 +166,7 @@ fn main() {
     let mut merge_manager = MergeFileManager::new();
 
     if cache_present {
-        let result = merge_manager.load_from_cache(Path::new(&cache_filename), delimiter, index);
+        let result = merge_manager.load_from_cache(&cache_filename, delimiter, index);
         println!("{}", result.unwrap())
     } else {
         info!("We didn't get any cache-file, loading from globs and merging directly!");
