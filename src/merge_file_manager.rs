@@ -106,7 +106,13 @@ impl MergeFileManager {
         // Remember the initial merge_key of the file
         merge_file.beginning_merge_key = iter_result.unwrap().0;
 
-        self.cache.insert(filepath.clone(), merge_file);
+        let cache_key = filepath.clone();
+
+        if self.cache.contains_key(&cache_key) {
+            self.cache.remove(&cache_key);
+        }
+
+        self.cache.insert(cache_key, merge_file);
         return Ok("File added to cache!");
     }
 
@@ -118,8 +124,25 @@ impl MergeFileManager {
                     let filename = path.to_str().unwrap().to_string();
 
                     // Check if the file is already in the cache and the same size
+                    {
+                        let cache_entry = self.cache.get(&filename);
+                        if cache_entry.is_some() {
+                            let cache_entry = cache_entry.unwrap();
+                            let cache_filesize = File::open(path).unwrap().metadata().unwrap().len();
+
+                            if cache_filesize == cache_entry.filesize {
+                                warn!("{} is already in the cache and is the same size, skipping", filename);
+                                continue;
+                            } else {
+                                warn!("{} is already in the cache, but a different size? Resetting it to the on-disk glob version", filename);
+                            }
+                        } else {
+                            debug!("{} wasn't found in the cache", filename);
+                        }
+                    }
 
                     // Add it into the cache if it isn't
+                    debug!("Adding {} to the cache!", filename);
                     let _ = self.add_file(&filename, delimiter, index);
                 },
                 Err(e) => {
