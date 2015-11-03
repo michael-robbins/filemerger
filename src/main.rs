@@ -70,7 +70,6 @@ fn main() {
         0 => {env::set_var("RUST_LOG", "warn")},
         1 => {env::set_var("RUST_LOG", "info")},
         2 => {env::set_var("RUST_LOG", "debug")},
-        666 => {panic!("EEEEVVVVIIIILLLLL!")},
         _ => {env::set_var("RUST_LOG", "trace")}, // Provided >2 -v flags
     }
 
@@ -167,7 +166,13 @@ fn main() {
 
     if cache_present {
         let result = merge_manager.load_from_cache(&cache_filename, delimiter, index);
-        println!("{}", result.unwrap())
+        if result.is_err() {
+            error!("Unable to load cache ({}) correctly, bailing!", &cache_filename);
+            error!("Error message was: {}", result.unwrap());
+            return;
+        } else {
+            println!("{}", result.unwrap())
+        }
     } else {
         info!("We didn't get any cache-file, loading from globs and merging directly!");
     }
@@ -176,6 +181,11 @@ fn main() {
         debug!("Getting all files from the glob(s)!");
         for glob_choice in glob_choices {
             let result = merge_manager.load_from_glob(&glob_choice, delimiter, index);
+            if result.is_err() {
+                error!("Unable to load glob ({}) ???", &glob_choice);
+                error!("Error message is: {}", result.unwrap());
+                return;
+            }
             debug!("Added glob {} to the cache with: {}", glob_choice, result.unwrap());
         }
 
@@ -184,11 +194,11 @@ fn main() {
             debug!("Creating new cache file");
 
             // For each file in the cache fast forward it all the way through
-            // Record its start and end, writing it out to a new cache file
-            //merge_manager.fast_forward_to_end();
+            merge_manager.fast_forward_cache_to_end();
 
             // Write the internal cache out to disk
-            //merge_manager.write_cache();
+            // Iterate over the merge_manager yeilding fast forwarded files
+            merge_manager.write_cache(&cache_filename);
 
             // Bail early as glob + cache == don't perform merge
             return;

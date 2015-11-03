@@ -79,6 +79,13 @@ impl MergeFile {
             let _ = self.lines.next();
         }
     }
+
+    fn fast_forward_to_end(&mut self) {
+        while self.lines.next().is_some() {
+            continue;
+        }
+
+    }
 }
 
 impl MergeFileManager {
@@ -205,9 +212,19 @@ impl MergeFileManager {
         }
     }
 
+    pub fn fast_forward_cache_to_end(&mut self) {
+        for (_, merge_file) in self.cache.iter_mut() {
+            println!("Fast Forwarding MergeFile {:?} -> end", &merge_file);
+            merge_file.fast_forward_to_end();
+        }
+    }
+
     pub fn begin_merge(self, merge_end: &String) {
         info!("Beginning merge => {}!", merge_end);
-        // The heapsort goes in here
+    }
+
+    pub fn write_cache(&mut self, cache_filename: &String) {
+        info!("Writing out cache to disk => {}!", cache_filename);
     }
 }
 
