@@ -12,6 +12,7 @@ extern crate bzip2;
 extern crate glob;
 
 mod merge_file_manager;
+mod merge_file;
 
 use merge_file_manager::MergeFileManager;
 use getopts::Options;
@@ -193,12 +194,10 @@ fn main() {
             // Write out the merge_cache to disk as the new cache file
             debug!("Creating new cache file");
 
-            // For each file in the cache fast forward it all the way through
-            merge_manager.fast_forward_cache_to_end();
-
-            // Write the internal cache out to disk
-            // Iterate over the merge_manager yeilding fast forwarded files
-            merge_manager.write_cache(&cache_filename);
+            match merge_manager.write_cache(&cache_filename) {
+                Ok(result) => {println!("{}", result)},
+                Err(result) => {println!("{}", result)},
+            }
 
             // Bail early as glob + cache == don't perform merge
             return;
@@ -216,5 +215,4 @@ fn main() {
     }
 
     merge_manager.begin_merge(&key_end);
-
 }

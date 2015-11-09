@@ -1,91 +1,15 @@
-
-
+use std::io::{BufReader,BufWriter};
 use std::collections::HashMap;
 use std::io::prelude::*;
-use std::io::BufReader;
-use std::error::Error;
 use std::path::Path;
-use std::io::Lines;
 use std::fs::File;
 use glob::glob;
-use std::cmp;
-use std::fmt;
+use std::io;
 
-// Optional decompressors for merge files
-use flate2::read::GzDecoder;
-use bzip2::reader::BzDecompressor;
-
-pub struct MergeFile {
-    filename: String,
-    filesize: u64,
-    lines: Lines<BufReader<Box<Read>>>,
-    delimiter: char,
-    index: usize,
-    line: String,
-    current_merge_key: String,
-    beginning_merge_key: String,
-    ending_merge_key: String,
-}
+use merge_file::MergeFile;
 
 pub struct MergeFileManager {
     pub cache: HashMap<String, MergeFile>,
-}
-
-impl MergeFile {
-    pub fn new(filename: &String, delimiter: char, index: usize) -> Result<MergeFile, String> {
-        // Open the input file
-        let filepath = Path::new(filename);
-        let file = match File::open(filepath) {
-            Err(_) => return Err(format!("Failed to open file {:?}", filepath)),
-            Ok(file) => file,
-        };
-
-        let file_metadata = file.metadata().unwrap();
-        let filesize = file_metadata.len();
-
-        // Figure out the input file's decompressor
-        let decompressor: Box<Read> = match filepath.extension().unwrap().to_str().unwrap() {
-            "bz2" => {
-                debug!("Using BzDecompressor as the input decompressor.");
-                Box::new(BzDecompressor::new(file))
-            },
-            "gz" => {
-                debug!("Using GzDecoder as the input decompressor.");
-                Box::new(GzDecoder::new(file).unwrap())
-            },
-            _ => {
-                debug!("Assuming the file is uncompressed.");
-                Box::new(file)
-            },
-        };
-
-        let merge_file = MergeFile {
-            filename: filepath.to_str().unwrap().to_string(),
-            filesize: filesize,
-            lines: BufReader::new(decompressor).lines(),
-            delimiter: delimiter,
-            index: index,
-            line: "".to_string(),
-            current_merge_key: "".to_string(),
-            beginning_merge_key: "".to_string(),
-            ending_merge_key: "".to_string(),
-        };
-
-        Ok(merge_file)
-    }
-
-    fn fast_forward(&mut self, merge_start: &String) {
-        while self.current_merge_key < *merge_start {
-            let _ = self.lines.next();
-        }
-    }
-
-    fn fast_forward_to_end(&mut self) {
-        while self.lines.next().is_some() {
-            continue;
-        }
-
-    }
 }
 
 impl MergeFileManager {
@@ -161,17 +85,20 @@ impl MergeFileManager {
         Ok(format!("Loaded all files we could from glob {:?}", glob_choice))
     }
 
-    pub fn load_from_cache(&mut self, cache_filepath: &String, delimiter: char, index: usize) -> Result<String, String> {
+    pub fn load_from_cache(&mut self, cache_filepath: &String, delimiter: char, index: usize) -> io::Result<String> {
+
+        // Cache file layout: file_name,mergekey_start,mergekey_end,file_size
         // Load the file
-        let cache_file = match File::open(Path::new(cache_filepath)) {
-            Err(why) => return Err(format!("ERROR: Count't open input file {}: {}", cache_filepath, Error::description(&why))),
-            Ok(file) => BufReader::new(file),
-        };
+        let cache_file = BufReader::new(try!(File::open(Path::new(cache_filepath))));
 
         // Iterate over cache_file reading in and creating new CacheFileEntry instances
         for cache_line in cache_file.lines() {
+            if cache_line.is_err() {
+                return Err(cache_line.unwrap_err());
+            }
+
             let cache_line = cache_line.unwrap();
-            println!("CacheFile line: {}", cache_line);
+            debug!("CacheFile line: {}", cache_line);
 
             let cache_line: Vec<&str> = cache_line.split("|").collect();
 
@@ -207,15 +134,8 @@ impl MergeFileManager {
 
     pub fn fast_forward_cache(&mut self, merge_start: &String) {
         for (_, merge_file) in self.cache.iter_mut() {
-            println!("Fast Forwarding MergeFile {:?} -> {}", &merge_file, &merge_start);
+            info!("Fast Forwarding MergeFile {:?} -> {}", &merge_file, &merge_start);
             merge_file.fast_forward(&merge_start);
-        }
-    }
-
-    pub fn fast_forward_cache_to_end(&mut self) {
-        for (_, merge_file) in self.cache.iter_mut() {
-            println!("Fast Forwarding MergeFile {:?} -> end", &merge_file);
-            merge_file.fast_forward_to_end();
         }
     }
 
@@ -223,79 +143,21 @@ impl MergeFileManager {
         info!("Beginning merge => {}!", merge_end);
     }
 
-    pub fn write_cache(&mut self, cache_filename: &String) {
+    pub fn write_cache(&mut self, cache_filename: &String) -> io::Result<&str> {
         info!("Writing out cache to disk => {}!", cache_filename);
-    }
-}
 
-impl Iterator for MergeFile {
-    type Item = (String, String);
+        // Open the file
+        let mut cache_file = BufWriter::new(try!(File::create(Path::new(cache_filename))));
 
-    // This is just a thin wrapper around Lines
-    // It extracts the merge_key and passes that upstream
-    fn next(&mut self) -> Option<(String, String)> {
-        match self.lines.next() {
-            Some(result) => {
-                match result {
-                    Ok(line) => {
-                        self.line = line.clone();
-                        self.current_merge_key = line.split(self.delimiter).nth(self.index).unwrap().to_string();
-
-                        trace!("file='{}' current_merge_key='{}'", self.filename, self.current_merge_key);
-                        Some((self.current_merge_key.clone(), self.line.clone()))
-                    },
-                    Err(_) => {
-                        // Problems reading the file
-                        debug!("Problem reading the next line for {}", self.filename);
-                        None
-                    },
-                }
-            },
-            None => {
-                // We've reached the end of the file, save it's merge_key
-                debug!("Reached EOF for {}", self.filename);
-                self.ending_merge_key = self.current_merge_key.clone();
-                None
-            },
+        for (_, merge_file) in self.cache.iter_mut() {
+            info!("Fast Forwarding MergeFile {:?} -> end", &merge_file);
+            merge_file.fast_forward_to_end();
+            try!(cache_file.write(format!("{},{},{},{}", merge_file.filename,
+                                                         merge_file.beginning_merge_key,
+                                                         merge_file.ending_merge_key,
+                                                         merge_file.filesize).as_ref()));
         }
-    }
-}
 
-impl fmt::Debug for MergeFile {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.filename)
-    }
-}
-
-impl cmp::Ord for MergeFile {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        if self.current_merge_key < other.current_merge_key {
-            return cmp::Ordering::Less;
-        } else if self.current_merge_key > other.current_merge_key {
-            return cmp::Ordering::Greater;
-        }
-        cmp::Ordering::Equal
-    }
-}
-
-impl cmp::PartialOrd for MergeFile {
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        if self.current_merge_key < other.current_merge_key {
-            return Some(cmp::Ordering::Less);
-        } else if self.current_merge_key > other.current_merge_key {
-            return Some(cmp::Ordering::Greater);
-        }
-        Some(cmp::Ordering::Equal)
-    }
-}
-
-impl cmp::Eq for MergeFile {}
-
-impl cmp::PartialEq for MergeFile {
-    fn eq(&self, other: &Self) -> bool {
-        if self.filename == other.filename && self.filesize == other.filesize {
-            return true;
-        }
-        false
+        Ok("Written cache out to disk.")
     }
 }
