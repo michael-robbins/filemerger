@@ -1,3 +1,5 @@
+// File IO modules
+use std::io::{Error, ErrorKind};
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::io::Lines;
@@ -5,6 +7,7 @@ use std::path::Path;
 use std::fs::File;
 use std::cmp;
 use std::fmt;
+use std::io;
 
 // Optional decompressors for merge files
 use flate2::read::GzDecoder;
@@ -23,19 +26,22 @@ pub struct MergeFile {
 }
 
 impl MergeFile {
-    pub fn new(filename: &String, delimiter: char, index: usize) -> Result<MergeFile, String> {
+    pub fn new(filename: &String, delimiter: char, index: usize) -> io::Result<MergeFile> {
         // Open the input file
         let filepath = Path::new(filename);
-        let file = match File::open(filepath) {
-            Err(_) => return Err(format!("Failed to open file {:?}", filepath)),
-            Ok(file) => file,
+
+        let file_ext = match filepath.extension() {
+            Some(extension) => extension,
+            None => return Err(Error::new(ErrorKind::Other, format!("Couldn't find file extension in {:?}", filepath))),
         };
 
-        let file_metadata = file.metadata().unwrap();
+        let file = try!(File::open(filepath));
+
+        let file_metadata = try!(file.metadata());
         let filesize = file_metadata.len();
 
         // Figure out the input file's decompressor
-        let decompressor: Box<Read> = match filepath.extension().unwrap().to_str().unwrap() {
+        let decompressor: Box<Read> = match file_ext.to_str().unwrap() {
             "bz2" => {
                 debug!("Using BzDecompressor as the input decompressor.");
                 Box::new(BzDecompressor::new(file))

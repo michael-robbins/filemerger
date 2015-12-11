@@ -1,4 +1,5 @@
 use std::io::{BufReader,BufWriter};
+use std::io::{Error, ErrorKind};
 use std::collections::HashMap;
 use std::io::prelude::*;
 use std::path::Path;
@@ -19,19 +20,15 @@ impl MergeFileManager {
         MergeFileManager{cache: cache}
     }
 
-    pub fn add_file(&mut self, filepath: &String, delimiter: char, index: usize) -> Result<&'static str, &'static str> {
+    pub fn add_file(&mut self, filepath: &String, delimiter: char, index: usize) -> io::Result<&'static str> {
         // Create the merge file
-        let merge_file = MergeFile::new(filepath, delimiter, index);
+        let merge_file = try!(MergeFile::new(filepath, delimiter, index));
 
-        if merge_file.is_err() {
-            return Err("Failed to create the merge file")
-        }
-
-        let mut merge_file = merge_file.unwrap();
-        let iter_result = merge_file.next();
+        let mut merge_file = merge_file;
+        let iter_result = merge_file.next(); // (Merge Key, Line)
 
         if iter_result.is_none() {
-            return Err("Failed to iterate on the merge file");
+            return Err(Error::new(ErrorKind::Other, "Failed to iterate on the merge file"));
         }
 
         // Remember the initial merge_key of the file
