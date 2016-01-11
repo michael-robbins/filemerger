@@ -16,6 +16,7 @@ mod merge_file;
 
 use merge_file_manager::MergeFileManager;
 use getopts::Options;
+use std::path::Path;
 use std::env;
 
 fn print_usage(program: &str, opts: Options) {
@@ -39,7 +40,7 @@ fn main() {
 
     // Merge key options (required for both emitting and caching)
     opts.optopt("", "delimiter", "Delimiter we split the line on", "tsv || csv || psv");
-    opts.optopt("", "index", "Column index we will use for the merge key", "0 -> len(line) - 1");
+    opts.optopt("", "index", "Column index we will use for the merge key (0 based)", "0 -> len(line) - 1");
 
     // File selection options
     // * If just glob(s) are provided, we will emit directly from all files (slower!)
@@ -135,9 +136,21 @@ fn main() {
         debug!("We didn't get any cache-file!");
     }
 
+    let cache_exists = Path::new(&cache_filename).is_file();
+
+    if cache_exists {
+        debug!("Cache file you provided already exists, we will attempt to load it first.");
+    } else {
+        debug!("Cache file you provided doesn't exist, not loading it first.");
+    }
+
     // Check that at least one required arg is present
     if ! glob_present && ! cache_present {
         error!("Missing both glob and cache-file, we need at least one of them.");
+        print_usage(&program, opts);
+        return;
+    } else if ! glob_present && ! cache_exists {
+        error!("No glob provided and the cache file doesn't exist? Nothing we can do here");
         print_usage(&program, opts);
         return;
     }
@@ -165,17 +178,21 @@ fn main() {
     // Set up the merge_cache
     let mut merge_manager = MergeFileManager::new();
 
-    if cache_present {
+    if cache_present && cache_exists {
         let result = merge_manager.load_from_cache(&cache_filename, delimiter, index);
         if result.is_err() {
             error!("Unable to load cache ({}) correctly, bailing!", &cache_filename);
             error!("Error message was: {}", result.unwrap());
             return;
         } else {
-            println!("{}", result.unwrap())
+            info!("{}", result.unwrap())
         }
     } else {
-        info!("We didn't get any cache-file, loading from globs and merging directly!");
+        if cache_present && glob_present {
+            info!("No cache provided, but we will write out one.")
+        } else {
+            info!("We didn't get any cache-file, loading from globs and merging directly!");
+        }
     }
 
     if glob_present {
@@ -195,8 +212,8 @@ fn main() {
             debug!("Creating new cache file");
 
             match merge_manager.write_cache(&cache_filename) {
-                Ok(result) => {println!("{}", result)},
-                Err(result) => {println!("{}", result)},
+                Ok(result) => {info!("{}", result)},
+                Err(result) => {error!("{}", result)},
             }
 
             // Bail early as glob + cache == don't perform merge
@@ -214,5 +231,6 @@ fn main() {
         info!("Beginning merge -> EOF");
     }
 
-    merge_manager.begin_merge(&key_end);
+    // TODO: Make key_end be passed in as a reference
+    merge_manager.begin_merge(key_end);
 }

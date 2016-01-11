@@ -1,3 +1,4 @@
+use std::collections::BinaryHeap;
 use std::io::{BufReader,BufWriter};
 use std::io::{Error, ErrorKind};
 use std::collections::HashMap;
@@ -10,6 +11,7 @@ use std::io;
 use merge_file::MergeFile;
 
 pub struct MergeFileManager {
+    //pub cache: Vec<MergeFile>,
     pub cache: HashMap<String, MergeFile>,
 }
 
@@ -97,10 +99,10 @@ impl MergeFileManager {
             let cache_line = cache_line.unwrap();
             debug!("CacheFile line: {}", cache_line);
 
-            let cache_line: Vec<&str> = cache_line.split("|").collect();
+            let cache_line: Vec<&str> = cache_line.split(",").collect();
 
             if cache_line.len() != 4 {
-                warn!("Skipping cache entry as the cache line's invalid!");
+                warn!("Cache entry has {} columns, we expect only 4", cache_line.len());
                 continue;
             }
 
@@ -136,8 +138,47 @@ impl MergeFileManager {
         }
     }
 
-    pub fn begin_merge(self, merge_end: &String) {
-        info!("Beginning merge => {}!", merge_end);
+    pub fn begin_merge(&mut self, merge_end: String) {
+        info!("Beginning merge => {}", merge_end);
+
+        // HeapSort-ify the self.cache vector based on the merge_key column
+        // Drain removes an item from the cache and returns it, this means we don't need to worry about cloning
+        let cache_vec: Vec<MergeFile> = self.cache.drain().map(|(_, file)| file).collect();
+        let mut cache = BinaryHeap::from(cache_vec);
+
+        // Create a discarded_cache of files, as once we pop the file off the heap, we can't insert it after it's bad
+        let mut discarded_cache: Vec<MergeFile> = Vec::new();
+
+        while cache.len() > 0 {
+            let earliest_file = cache.pop();
+
+            if earliest_file.is_none() {
+                info!("We reached the end of the cache! All done!");
+                break
+            }
+
+            // Unwrap earliest_file and attempt to read a line`
+            let mut earliest_file = earliest_file.unwrap();
+            let result = earliest_file.next();
+
+            // Report on the line or EOF the file and add it to the discarded pile
+            if result.is_some() {
+                let result = result.unwrap();
+
+                // Check if the line has exceeped the merge_end key
+                if result.0 > merge_end {
+                    info!("MergeFile<{}> has hit end bound ({}>{}), discarding from cache", earliest_file.filename, result.0, merge_end);
+                    discarded_cache.push(earliest_file);
+                } else {
+                    // Print the line the push the MergeFile back into the heap
+                    println!("{}", result.1);
+                    cache.push(earliest_file);
+                }
+            } else {
+                println!("We hit EOF for {} with a final merge key of {}", earliest_file.filename, earliest_file.ending_merge_key);
+                discarded_cache.push(earliest_file);
+            }
+        }
     }
 
     pub fn write_cache(&mut self, cache_filename: &String) -> io::Result<&str> {
@@ -149,7 +190,7 @@ impl MergeFileManager {
         for (_, merge_file) in self.cache.iter_mut() {
             info!("Fast Forwarding MergeFile {:?} -> end", &merge_file);
             merge_file.fast_forward_to_end();
-            try!(cache_file.write(format!("{},{},{},{}", merge_file.filename,
+            try!(cache_file.write(format!("{},{},{},{}\n", merge_file.filename,
                                                          merge_file.beginning_merge_key,
                                                          merge_file.ending_merge_key,
                                                          merge_file.filesize).as_ref()));
