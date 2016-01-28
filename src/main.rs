@@ -61,6 +61,8 @@ fn main() {
         }
     };
 
+    // TODO: Turn all the opts stuff to write into an 'Options' struct, then just read out of that
+
     // Check if the 'h' flag was present, print the usage if it was, then exit
     if matches.opt_present("h") {
         print_usage(&program, opts);

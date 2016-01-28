@@ -11,7 +11,6 @@ use std::io;
 use merge_file::MergeFile;
 
 pub struct MergeFileManager {
-    //pub cache: Vec<MergeFile>,
     pub cache: HashMap<String, MergeFile>,
 }
 
@@ -23,10 +22,12 @@ impl MergeFileManager {
     }
 
     pub fn add_file(&mut self, filepath: &String, delimiter: char, index: usize) -> io::Result<&'static str> {
-        // Create the merge file
-        let merge_file = try!(MergeFile::new(filepath, delimiter, index));
+        // TODO: Unit test: Create new file (some how mock MergeFile::new() & self.cache)
+        // TODO: Unit test(s): Above test, but with all different combinations of filepaths/delimiters/indexs/etc
 
-        let mut merge_file = merge_file;
+        // Create the merge file
+        let mut merge_file = try!(MergeFile::new(filepath, delimiter, index));
+
         let iter_result = merge_file.next(); // (Merge Key, Line)
 
         if iter_result.is_none() {
@@ -39,6 +40,7 @@ impl MergeFileManager {
         let cache_key = filepath.clone();
 
         if self.cache.contains_key(&cache_key) {
+            warn!("{} is already in the cache, removing it and adding in this one", &cache_key);
             self.cache.remove(&cache_key);
         }
 
@@ -47,11 +49,20 @@ impl MergeFileManager {
     }
 
     pub fn load_from_glob(&mut self, glob_choice: &String, delimiter: char, index: usize) -> Result<String, String> {
+        // TODO: Unit test: Given a glob test the number of files found
+        // TODO: Unit test: Given an invalid glob test the number of files found
+
         // Fill the merge_cache with all files from the glob
-        for result in glob(glob_choice.as_ref()).unwrap() {
+        let glob_result = glob(glob_choice.as_ref());
+
+        if glob_result.is_err() {
+            return Err(format!("Unable to perform glob over: {}",glob_choice))
+        }
+
+        for result in glob_result.unwrap() {
             match result {
                 Ok(path) => {
-                    let filename = path.to_str().unwrap().to_string();
+                    let filename = path.to_string_lossy().into_owned();
 
                     // Check if the file is already in the cache and the same size
                     {
@@ -85,6 +96,8 @@ impl MergeFileManager {
     }
 
     pub fn load_from_cache(&mut self, cache_filepath: &String, delimiter: char, index: usize) -> io::Result<String> {
+        // TODO: Unit test: Given a known cache, determine the loaded entries
+        // TODO: Unit test: Given an invalid cache, determine the loaded entries
 
         // Cache file layout: file_name,mergekey_start,mergekey_end,file_size
         // Load the file
@@ -132,9 +145,18 @@ impl MergeFileManager {
     }
 
     pub fn fast_forward_cache(&mut self, merge_start: &String) {
+        // TODO: Handle the deletion stuff better
+        let mut files_to_delete: Vec<String>  = vec!();
         for (_, merge_file) in self.cache.iter_mut() {
             info!("Fast Forwarding MergeFile {:?} -> {}", &merge_file, &merge_start);
-            merge_file.fast_forward(&merge_start);
+            if merge_file.fast_forward(&merge_start).is_err() {
+                info!("Failed to fastforward or we hit EOF for {}, removing from cache", merge_file.filename);
+                files_to_delete.push(merge_file.filename.clone());
+            }
+        }
+
+        for filename in files_to_delete {
+            info!("Removing file {} from cache", filename);
         }
     }
 
@@ -182,18 +204,23 @@ impl MergeFileManager {
     }
 
     pub fn write_cache(&mut self, cache_filename: &String) -> io::Result<&str> {
+        // TODO: Make the function accept a cache instead of using self
+        // TODO: Unit test: Given a filename, test the provided cache writing
+        // TODO: Unit test: Given an invalid filename, test the writing ability
         info!("Writing out cache to disk => {}!", cache_filename);
 
         // Open the file
         let mut cache_file = BufWriter::new(try!(File::create(Path::new(cache_filename))));
 
+        //TODO: Need to sort the output of iter_mut() before iterating over it (maybe collect -vec-> sort?)
+        //      This is required for functional test(s) because we need to garuentee the output ordering of the cache
         for (_, merge_file) in self.cache.iter_mut() {
             info!("Fast Forwarding MergeFile {:?} -> end", &merge_file);
             merge_file.fast_forward_to_end();
             try!(cache_file.write(format!("{},{},{},{}\n", merge_file.filename,
-                                                         merge_file.beginning_merge_key,
-                                                         merge_file.ending_merge_key,
-                                                         merge_file.filesize).as_ref()));
+                                                           merge_file.beginning_merge_key,
+                                                           merge_file.ending_merge_key,
+                                                           merge_file.filesize).as_ref()));
         }
 
         Ok("Written cache out to disk.")

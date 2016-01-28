@@ -26,17 +26,17 @@ pub struct MergeFile {
 }
 
 impl MergeFile {
-    pub fn new(filename: &String, delimiter: char, index: usize) -> io::Result<MergeFile> {
-        // Open the input file
-        let filepath = Path::new(filename);
+    // Unit test: Create MergeFile with valid test data
+    // Unit test: Create MergeFile with invalid test data
 
+    pub fn new(filename: &String, delimiter: char, index: usize) -> io::Result<MergeFile> {
+        let filepath = Path::new(filename);
         let file_ext = match filepath.extension() {
             Some(extension) => extension,
             None => return Err(Error::new(ErrorKind::Other, format!("Couldn't find file extension in {:?}", filepath))),
         };
 
         let file = try!(File::open(filepath));
-
         let file_metadata = try!(file.metadata());
         let filesize = file_metadata.len();
 
@@ -71,17 +71,21 @@ impl MergeFile {
         Ok(merge_file)
     }
 
-    pub fn fast_forward(&mut self, merge_start: &String) {
+    pub fn fast_forward(&mut self, merge_start: &String) -> Result<&'static str,&'static str> {
         while self.current_merge_key < *merge_start {
-            let _ = self.lines.next();
+            if self.next().is_none() {
+                debug!("Fast forward for {} hit EOF or failed to read, bailing", self.filename);
+                return Err("Hit EOF or failed to read");
+            }
         }
+
+        Ok("Fastwarded correctly")
     }
 
     pub fn fast_forward_to_end(&mut self) {
-        while self.lines.next().is_some() {
+        while self.next().is_some() {
             continue;
         }
-
     }
 }
 
@@ -89,24 +93,21 @@ impl Iterator for MergeFile {
     type Item = (String, String);
 
     // This is just a thin wrapper around Lines
-    // It extracts the merge_key and passes that upstream
+    // It saves the line, extracts the merge_key and passes them upstream
     fn next(&mut self) -> Option<(String, String)> {
         match self.lines.next() {
-            Some(result) => {
-                match result {
-                    Ok(line) => {
-                        self.line = line.clone();
-                        self.current_merge_key = line.split(self.delimiter).nth(self.index).unwrap().to_string();
+            Some(Ok(line)) => {
+                // Clone all required parts and return the new merge key and the line
+                self.line = line.clone();
+                self.current_merge_key = line.split(self.delimiter).nth(self.index).unwrap().to_string();
+                trace!("file='{}' current_merge_key='{}'", self.filename, self.current_merge_key);
 
-                        trace!("file='{}' current_merge_key='{}'", self.filename, self.current_merge_key);
-                        Some((self.current_merge_key.clone(), self.line.clone()))
-                    },
-                    Err(_) => {
-                        // Problems reading the file
-                        debug!("Problem reading the next line for {}", self.filename);
-                        None
-                    },
-                }
+                Some((self.current_merge_key.clone(), line))
+            },
+            Some(Err(_)) => {
+                // Problems reading the file
+                debug!("Problem reading the next line for {}", self.filename);
+                None
             },
             None => {
                 // We've reached the end of the file, save it's merge_key
