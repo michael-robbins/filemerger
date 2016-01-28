@@ -1,7 +1,10 @@
 [package]
-name = "file-merge"
+
+name = "file-merger"
 version = "0.1.0"
 authors = ["Michael Robbins <michael@dalmura.com.au>"]
+homepage = "https://github.com/michael-robbins/filemerger"
+repository = "https://github.com/michael-robbins/filemerger"
 
 [dependencies]
 getopts = "0.*.*"
