@@ -11,7 +11,7 @@ It is written in the Rust programming language as an initial foray into the lang
 * Low memory overhead as we only store the 'current' line of each merge file in memory
 
 ## Installation
-### From source
+### From source (assuming you have Rust & Cargo installed)
 1. Clone the repository: ```git clone https://github.com/michael-robbins/filemerger.git```
 
 2. ```cd filemerger; cargo build --release```. The binary will now be in ```./target/release/filemerger```
