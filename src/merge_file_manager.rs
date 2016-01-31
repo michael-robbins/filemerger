@@ -1,5 +1,5 @@
-use std::collections::BinaryHeap;
 use std::io::{BufReader,BufWriter};
+use std::collections::BinaryHeap;
 use std::io::{Error, ErrorKind};
 use std::collections::HashMap;
 use std::io::prelude::*;
@@ -12,19 +12,17 @@ use merge_file::MergeFile;
 
 pub struct MergeFileManager {
     pub cache: HashMap<String, MergeFile>,
+    print_merge_output: bool,
 }
 
 impl MergeFileManager {
     pub fn new() -> MergeFileManager {
         // Allocate an empty cache and return it
         let cache = HashMap::new();
-        MergeFileManager{cache: cache}
+        MergeFileManager{cache: cache, print_merge_output: true}
     }
 
     pub fn add_file(&mut self, filepath: &String, delimiter: char, index: usize) -> io::Result<&'static str> {
-        // TODO: Unit test: Create new file (some how mock MergeFile::new() & self.cache)
-        // TODO: Unit test(s): Above test, but with all different combinations of filepaths/delimiters/indexs/etc
-
         // Create the merge file
         let mut merge_file = try!(MergeFile::new(filepath, delimiter, index));
 
@@ -192,8 +190,11 @@ impl MergeFileManager {
                     info!("MergeFile<{}> has hit end bound ({}>{}), discarding from cache", earliest_file.filename, result.0, merge_end);
                     discarded_cache.push(earliest_file);
                 } else {
-                    // Print the line the push the MergeFile back into the heap
-                    println!("{}", result.1);
+                    // Print the line (if required) then push the MergeFile back into the heap
+                    if self.print_merge_output {
+                        println!("{}", result.1);
+                    }
+
                     cache.push(earliest_file);
                 }
             } else {
@@ -225,4 +226,62 @@ impl MergeFileManager {
 
         Ok("Written cache out to disk.")
     }
+}
+
+#[test]
+fn test_add_file() {
+    // Set up the test data
+    // TODO: Add the PID of the process into the filename
+    let test_filename_1 = "/tmp/test_add_file.file1.tsv".to_string();
+    let mut test_file_1 = BufWriter::new(File::create(Path::new(&test_filename_1)).unwrap());
+    test_file_1.write(format!("{}\t{}\t{}\n", "123", "bbb", "999").as_ref()).unwrap();
+    test_file_1.write(format!("{}\t{}\t{}\n", "124", "bbb", "999").as_ref()).unwrap();
+    test_file_1.write(format!("{}\t{}\t{}\n", "125", "bbb", "999").as_ref()).unwrap();
+    let _ = test_file_1.flush();
+
+    let test_filename_2 = "/tmp/test_add_file.file2.tsv".to_string();
+    let mut test_file_2 = BufWriter::new(File::create(Path::new(&test_filename_2)).unwrap());
+    test_file_2.write(format!("{},{},{}\n", "123", "aaa", "888").as_ref()).unwrap();
+    test_file_2.write(format!("{},{},{}\n", "124", "aaa", "888").as_ref()).unwrap();
+    test_file_2.write(format!("{},{},{}\n", "127", "aaa", "888").as_ref()).unwrap();
+    let _ = test_file_2.flush();
+
+    // Create an instance of MergeFileManager
+    let cache = HashMap::new();
+    let mut test_manager = MergeFileManager{cache: cache, print_merge_output: false};
+
+    // Add the first file and sanity check
+    assert!(test_manager.add_file(&test_filename_1, '\t', 0).is_ok());
+    assert_eq!(test_manager.cache.len(), 1);
+    assert_eq!(test_manager.cache.get(&test_filename_1).unwrap().filename, test_filename_1);
+
+    // Add the second file and sanity check
+    assert!(test_manager.add_file(&test_filename_2, ',', 0).is_ok());
+    assert_eq!(test_manager.cache.len(), 2);
+    assert_eq!(test_manager.cache.get(&test_filename_2).unwrap().filename, test_filename_2);
+
+    // Add the second file *again* and sure there isn't 3 files
+    assert!(test_manager.add_file(&test_filename_2, ',', 0).is_ok());
+    assert_eq!(test_manager.cache.len(), 2);
+
+    // Check the first file's number of lines
+    assert!(test_manager.cache.get_mut(&test_filename_1).unwrap().next().is_some());
+    assert!(test_manager.cache.get_mut(&test_filename_1).unwrap().next().is_some());
+    assert!(test_manager.cache.get_mut(&test_filename_1).unwrap().next().is_none());
+
+    // Check the second file's number of lines
+    assert!(test_manager.cache.get_mut(&test_filename_2).unwrap().next().is_some());
+    assert!(test_manager.cache.get_mut(&test_filename_2).unwrap().next().is_some());
+    assert!(test_manager.cache.get_mut(&test_filename_2).unwrap().next().is_none());
+}
+
+#[test]
+fn test_load_from_glob() {
+    // load_from_glob function signiture
+    // (&mut self, glob_choice: &String, delimiter: char, index: usize) -> Result<String, String>
+    let glob_choice_1 = "tests/files/data1.tsv";
+    let glob_choice_2 = "tests/files/data?.tsv";
+
+    assert_eq!(glob_choice_1, "tests/files/data1.tsv");
+    assert_eq!(glob_choice_2, "tests/files/data?.tsv");
 }

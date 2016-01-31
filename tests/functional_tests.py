@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+#
+# These are the functional tests for the file merger
+# Currently running some dodgy home-made test runner
+# Plan is to move this crap over to nosetests or something similar
+#
+
 import os
 import sys
 import time
