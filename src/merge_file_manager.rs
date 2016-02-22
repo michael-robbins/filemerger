@@ -5,207 +5,192 @@ use std::collections::HashMap;
 use std::io::prelude::*;
 use std::path::Path;
 use std::fs::File;
-use glob::glob;
 use std::io;
+use glob;
 
 use merge_file::MergeFile;
 
-pub struct MergeFileManager {
-    pub cache: HashMap<String, MergeFile>,
-    print_merge_output: bool,
-}
+/// A MergeFile manager that maintains an internal cache and will perform the merge over all added files.
+///
+/// The idea is you add various files into the cache, configuring a delimiter and the column to perform
+/// the merge on. Then you either write a new cache file to be used later, or you perform the merge.
+pub struct MergeFileManager;
 
 impl MergeFileManager {
-    pub fn new() -> MergeFileManager {
-        // Allocate an empty cache and return it
-        let cache = HashMap::new();
-        MergeFileManager{cache: cache, print_merge_output: true}
-    }
-
-    pub fn add_file(&mut self, filepath: &String, delimiter: char, index: usize) -> io::Result<&'static str> {
+    /// Creates a new MergeFile
+    fn new_merge_file(filepath: &str, delimiter: char, index: usize) -> io::Result<MergeFile> {
         // Create the merge file
         let mut merge_file = try!(MergeFile::new(filepath, delimiter, index));
 
-        let iter_result = merge_file.next(); // (Merge Key, Line)
-
-        if iter_result.is_none() {
+        // Perform the first iteration over the merge_file to populate all the required fields
+        if let Some(iter_result) = merge_file.next() {
+            // Remember the initial merge_key of the file
+            merge_file.beginning_merge_key = iter_result.0; // iter_result = (merge_key, line)
+            return Ok(merge_file);
+        } else {
             return Err(Error::new(ErrorKind::Other, "Failed to iterate on the merge file"));
         }
-
-        // Remember the initial merge_key of the file
-        merge_file.beginning_merge_key = iter_result.unwrap().0;
-
-        let cache_key = filepath.clone();
-
-        if self.cache.contains_key(&cache_key) {
-            warn!("{} is already in the cache, removing it and adding in this one", &cache_key);
-            self.cache.remove(&cache_key);
-        }
-
-        self.cache.insert(cache_key, merge_file);
-        return Ok("File added to cache!");
     }
 
-    pub fn load_from_glob(&mut self, glob_choice: &String, delimiter: char, index: usize) -> Result<String, String> {
-        // TODO: Unit test: Given a glob test the number of files found
-        // TODO: Unit test: Given an invalid glob test the number of files found
+    /// Loads a bunch of files into an internal cache that are returned from a glob. Returns the
+    /// number of files the glob loaded successfully.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut merge_manager = MergeFileManager::new();
+    /// merge_manager.load_from_glob("/data/files/*.csv", ',', 0);
+    /// ```
+    pub fn retrieve_from_glob(glob_choice: &str, delimiter: char, index: usize) -> io::Result<HashMap<String, MergeFile>> {
+        let mut cache: HashMap<String, MergeFile> = HashMap::new();
 
-        // Fill the merge_cache with all files from the glob
-        let glob_result = glob(glob_choice.as_ref());
+        let glob_result = glob::glob(glob_choice);
 
         if glob_result.is_err() {
-            return Err(format!("Unable to perform glob over: {}",glob_choice))
+            return Err(Error::new(ErrorKind::Other, format!("Unable to perform glob over: {}",glob_choice)));
         }
 
-        for result in glob_result.unwrap() {
-            match result {
-                Ok(path) => {
-                    let filename = path.to_string_lossy().into_owned();
+        let mut glob_result = glob_result.unwrap();
 
-                    // Check if the file is already in the cache and the same size
-                    {
-                        let cache_entry = self.cache.get(&filename);
-                        if cache_entry.is_some() {
-                            let cache_entry = cache_entry.unwrap();
-                            let cache_filesize = File::open(path).unwrap().metadata().unwrap().len();
+        while let Some(Ok(path)) = glob_result.next() {
+            debug!("Attempting to load path: {}", path.display());
 
-                            if cache_filesize == cache_entry.filesize {
-                                warn!("{} is already in the cache and is the same size, skipping", filename);
-                                continue;
-                            } else {
-                                warn!("{} is already in the cache, but a different size? Resetting it to the on-disk glob version", filename);
-                            }
-                        } else {
-                            debug!("{} wasn't found in the cache", filename);
-                        }
-                    }
-
-                    // Add it into the cache if it isn't
-                    debug!("Adding {} to the cache!", filename);
-                    let _ = self.add_file(&filename, delimiter, index);
-                },
-                Err(e) => {
-                    debug!("Unable to load {:?} we got from the glob {}", e, glob_choice);
-                },
+            if let Some(path) = path.to_str() {
+                if let Ok(merge_file) = MergeFileManager::new_merge_file(path, delimiter, index) {
+                    debug!("Added {} to the cache successfully!", path);
+                    cache.insert(path.to_string(), merge_file);
+                } else {
+                    error!("We failed to load {} into the cache!", path);
+                }
+            } else {
+                error!("Unable to convert path into unicode?");
             }
         }
 
-        Ok(format!("Loaded all files we could from glob {:?}", glob_choice))
+        Ok(cache)
     }
 
-    pub fn load_from_cache(&mut self, cache_filepath: &String, delimiter: char, index: usize) -> io::Result<String> {
-        // TODO: Unit test: Given a known cache, determine the loaded entries
-        // TODO: Unit test: Given an invalid cache, determine the loaded entries
+    /// Loads a bunch of files into an internal cache that are returned from a pregenerated
+    /// cache file from a previous invocation of this program. Returns the number of files
+    /// the cache file loaded successfully.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut merge_manager = MergeFileManager::new();
+    /// merge_manager.load_from_cache("/data/cache/file.cache", ',', 0);
+    /// ```
+    pub fn retrieve_from_cache(cache_filepath: &str, delimiter: char, index: usize) -> io::Result<HashMap<String, MergeFile>> {
+        let mut cache: HashMap<String, MergeFile> = HashMap::new();
 
-        // Cache file layout: file_name,mergekey_start,mergekey_end,file_size
-        // Load the file
+        // Attempt to read the cache file
         let cache_file = BufReader::new(try!(File::open(Path::new(cache_filepath))));
+        let mut cache_file_lines = cache_file.lines();
 
-        // Iterate over cache_file reading in and creating new CacheFileEntry instances
-        for cache_line in cache_file.lines() {
-            if cache_line.is_err() {
-                return Err(cache_line.unwrap_err());
-            }
-
-            let cache_line = cache_line.unwrap();
-            debug!("CacheFile line: {}", cache_line);
+        // Iterate over cache file reading in and creating new CacheFileEntry instances
+        while let Some(Ok(cache_line)) = cache_file_lines.next() {
+            debug!("CacheFile line: '{}'", cache_line);
 
             let cache_line: Vec<&str> = cache_line.split(",").collect();
 
             if cache_line.len() != 4 {
-                warn!("Cache entry has {} columns, we expect only 4", cache_line.len());
+                warn!("Cache entry has {} columns, we expect only 4, skipping this line.", cache_line.len());
                 continue;
             }
 
-            // We should totally verify the filename exists locally first?
-            let cache_entry_filename = cache_line[0].to_string();
-            let cache_entry_filepath = Path::new(&cache_entry_filename);
-            let cache_entry_file_result = File::open(cache_entry_filepath.clone());
+            //let (filename, beginning_merge_key, ending_merge_key, filesize) =
+            let (filename, _, _, _) =
+                (cache_line[0], cache_line[1], cache_line[2], cache_line[3]);
 
-            if cache_entry_file_result.is_err() {
-                warn!("Skipping cache entry for {} as it doesn't exist?", cache_line[0].to_string());
-                continue;
+            // TODO: Check if filename is already in the cache, if so, check its filesize and skip if the same
+
+            // Add it into the cache if it isn't
+            if let Ok(merge_file) = MergeFileManager::new_merge_file(&filename.to_string(), delimiter, index) {
+                cache.insert(filename.to_string(), merge_file);
+                debug!("Added {} to the cache successfully!", filename);
+            } else {
+                error!("We failed to load {} into the cache!", filename);
             }
-
-            let cache_entry_file = cache_entry_file_result.unwrap();
-            let ondisk_filesize = cache_entry_file.metadata().unwrap().len();
-            let cache_filesize = cache_line[3].parse::<u64>().unwrap();
-
-            if ondisk_filesize != cache_filesize {
-                warn!("Skipping cache entry for {:?} as it's filesize is wrong ({} != {})", cache_entry_filepath, ondisk_filesize, cache_filesize);
-                continue;
-            }
-
-            let _ = self.add_file(&cache_entry_filename, delimiter, index);
         }
 
-        Ok(format!("Loaded all files we could from {:?}", cache_filepath))
+        Ok(cache)
     }
 
-    pub fn fast_forward_cache(&mut self, merge_start: &String) {
-        // TODO: Handle the deletion stuff better
-        let mut files_to_delete: Vec<String>  = vec!();
-        for (_, merge_file) in self.cache.iter_mut() {
-            info!("Fast Forwarding MergeFile {:?} -> {}", &merge_file, &merge_start);
+    /// Consumes a HashMap<K,V> turning it into an owned Vec<V>
+    fn cache_to_vec(mut hashmap: HashMap<String, MergeFile>) -> Vec<MergeFile> {
+        hashmap.drain().map(|(_, file)| file).collect()
+    }
+
+    /// Starts the k-way merge on the cache in its current state.
+    /// It will forward all files to the start of the merge,
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut merge_manager = MergeFileManager::new();
+    /// merge_manager.load_from_glob("/data/*.tsv", '\t', 0);
+    /// merge_manager.begin_merge("zzz");
+    /// ```
+    pub fn begin_merge(mut cache: HashMap<String, MergeFile>, merge_start: &String, merge_end: &String, print_merge_output: bool) {
+        info!("Beginning merge ({} -> {})", merge_start, merge_end);
+
+        // First fastforward all cache entries removing the stale ones
+        let mut files_to_delete: Vec<String> = vec!();
+
+        for (_, merge_file) in cache.iter_mut() {
             if merge_file.fast_forward(&merge_start).is_err() {
-                info!("Failed to fastforward or we hit EOF for {}, removing from cache", merge_file.filename);
                 files_to_delete.push(merge_file.filename.clone());
             }
         }
 
         for filename in files_to_delete {
             info!("Removing file {} from cache", filename);
+            cache.remove(&filename);
         }
-    }
 
-    pub fn begin_merge(&mut self, merge_end: String) {
-        info!("Beginning merge => {}", merge_end);
-
-        // HeapSort-ify the self.cache vector based on the merge_key column
-        // Drain removes an item from the cache and returns it, this means we don't need to worry about cloning
-        let cache_vec: Vec<MergeFile> = self.cache.drain().map(|(_, file)| file).collect();
-        let mut cache = BinaryHeap::from(cache_vec);
+        // Turn the cache into a vector
+        let mut heap: BinaryHeap<MergeFile> = BinaryHeap::from(MergeFileManager::cache_to_vec(cache));
 
         // Create a discarded_cache of files, as once we pop the file off the heap, we can't insert it after it's bad
-        let mut discarded_cache: Vec<MergeFile> = Vec::new();
+        let mut discarded_heap: Vec<MergeFile> = Vec::new();
 
-        while cache.len() > 0 {
-            let earliest_file = cache.pop();
-
-            if earliest_file.is_none() {
-                info!("We reached the end of the cache! All done!");
-                break
-            }
-
-            // Unwrap earliest_file and attempt to read a line`
-            let mut earliest_file = earliest_file.unwrap();
-            let result = earliest_file.next();
+        //while cache.len() > 0 {
+        while let Some(mut next_file) = heap.pop() {
+            //let result = next_file.next();
 
             // Report on the line or EOF the file and add it to the discarded pile
-            if result.is_some() {
-                let result = result.unwrap();
-
-                // Check if the line has exceeped the merge_end key
-                if result.0 > merge_end {
-                    info!("MergeFile<{}> has hit end bound ({}>{}), discarding from cache", earliest_file.filename, result.0, merge_end);
-                    discarded_cache.push(earliest_file);
+            if let Some(result) = next_file.next() {
+                // Check if the line has exceeded the merge_end key
+                if result.0 > *merge_end {
+                    info!("MergeFile<{}> has hit end bound ({}>{}), discarding from cache", next_file.filename, result.0, merge_end);
+                    discarded_heap.push(next_file);
                 } else {
                     // Print the line (if required) then push the MergeFile back into the heap
-                    if self.print_merge_output {
+                    if print_merge_output {
                         println!("{}", result.1);
                     }
 
-                    cache.push(earliest_file);
+                    heap.push(next_file);
                 }
             } else {
-                println!("We hit EOF for {} with a final merge key of {}", earliest_file.filename, earliest_file.ending_merge_key);
-                discarded_cache.push(earliest_file);
+                println!("We hit EOF for {} with a final merge key of {}", next_file.filename, next_file.ending_merge_key);
+                discarded_heap.push(next_file);
             }
         }
     }
 
-    pub fn write_cache(&mut self, cache_filename: &String) -> io::Result<&str> {
-        // TODO: Make the function accept a cache instead of using self
+    /// Consumes the cache, turning it into a sorted vector.
+    /// It then fast forwards each file and writes it out into the cache file.
+    /// The cache file layout is: file_name, mergekey_start, mergekey_end, file_size
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut merge_manager = MergeFileManager::new();
+    /// let cache = merge_manager.load_from_glob("/data/*.tsv", '\t', 0);
+    /// merge_manager.write_cache("/data/caches/data.cache".to_string(), cache);
+    /// ```
+    pub fn write_cache(cache_filename: &String, cache: HashMap<String, MergeFile>) -> io::Result<String> {
         // TODO: Unit test: Given a filename, test the provided cache writing
         // TODO: Unit test: Given an invalid filename, test the writing ability
         info!("Writing out cache to disk => {}!", cache_filename);
@@ -213,10 +198,12 @@ impl MergeFileManager {
         // Open the file
         let mut cache_file = BufWriter::new(try!(File::create(Path::new(cache_filename))));
 
-        //TODO: Need to sort the output of iter_mut() before iterating over it (maybe collect -vec-> sort?)
-        //      This is required for functional test(s) because we need to garuentee the output ordering of the cache
-        for (_, merge_file) in self.cache.iter_mut() {
-            info!("Fast Forwarding MergeFile {:?} -> end", &merge_file);
+        // Drain the cache into a vec, sort it, then write its contents out to disk
+        let mut merge_files = MergeFileManager::cache_to_vec(cache);
+        merge_files.sort();
+
+        for mut merge_file in merge_files {
+            info!("Fast Forwarding MergeFile {} -> end", &merge_file);
             merge_file.fast_forward_to_end();
             try!(cache_file.write(format!("{},{},{},{}\n", merge_file.filename,
                                                            merge_file.beginning_merge_key,
@@ -224,64 +211,185 @@ impl MergeFileManager {
                                                            merge_file.filesize).as_ref()));
         }
 
-        Ok("Written cache out to disk.")
+        Ok("Written cache out to disk.".to_string())
     }
 }
 
-#[test]
-fn test_add_file() {
-    // Set up the test data
-    // TODO: Add the PID of the process into the filename
-    let test_filename_1 = "/tmp/test_add_file.file1.tsv".to_string();
-    let mut test_file_1 = BufWriter::new(File::create(Path::new(&test_filename_1)).unwrap());
-    test_file_1.write(format!("{}\t{}\t{}\n", "123", "bbb", "999").as_ref()).unwrap();
-    test_file_1.write(format!("{}\t{}\t{}\n", "124", "bbb", "999").as_ref()).unwrap();
-    test_file_1.write(format!("{}\t{}\t{}\n", "125", "bbb", "999").as_ref()).unwrap();
-    let _ = test_file_1.flush();
 
-    let test_filename_2 = "/tmp/test_add_file.file2.tsv".to_string();
-    let mut test_file_2 = BufWriter::new(File::create(Path::new(&test_filename_2)).unwrap());
-    test_file_2.write(format!("{},{},{}\n", "123", "aaa", "888").as_ref()).unwrap();
-    test_file_2.write(format!("{},{},{}\n", "124", "aaa", "888").as_ref()).unwrap();
-    test_file_2.write(format!("{},{},{}\n", "127", "aaa", "888").as_ref()).unwrap();
-    let _ = test_file_2.flush();
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::io::prelude::*;
+    use std::io::BufWriter;
+    use std::path::Path;
+    use std::fs::File;
+    use std::fs;
 
-    // Create an instance of MergeFileManager
-    let cache = HashMap::new();
-    let mut test_manager = MergeFileManager{cache: cache, print_merge_output: false};
+    use super::MergeFileManager;
 
-    // Add the first file and sanity check
-    assert!(test_manager.add_file(&test_filename_1, '\t', 0).is_ok());
-    assert_eq!(test_manager.cache.len(), 1);
-    assert_eq!(test_manager.cache.get(&test_filename_1).unwrap().filename, test_filename_1);
+    fn create_file(filename: &String, contents: String) {
+        let mut temp_file = BufWriter::new(File::create(Path::new(filename)).unwrap());
+        temp_file.write(contents.as_ref()).unwrap();
+        let _ = temp_file.flush();
+    }
 
-    // Add the second file and sanity check
-    assert!(test_manager.add_file(&test_filename_2, ',', 0).is_ok());
-    assert_eq!(test_manager.cache.len(), 2);
-    assert_eq!(test_manager.cache.get(&test_filename_2).unwrap().filename, test_filename_2);
+    #[test]
+    fn test_add_file() {
+        // Set up the test data
+        // TODO: Add the PID of the process into the filename
+        let test_filename_1 = "/tmp/test_add_file.file1.tsv".to_string();
+        let test_contents_1 = format!("{}\t{}\t{}\n{}\t{}\t{}\n{}\t{}\t{}\n",
+                                        "123", "bbb", "999",
+                                        "124", "bbb", "999",
+                                        "125", "bbb", "999");
 
-    // Add the second file *again* and sure there isn't 3 files
-    assert!(test_manager.add_file(&test_filename_2, ',', 0).is_ok());
-    assert_eq!(test_manager.cache.len(), 2);
+        create_file(&test_filename_1, test_contents_1);
 
-    // Check the first file's number of lines
-    assert!(test_manager.cache.get_mut(&test_filename_1).unwrap().next().is_some());
-    assert!(test_manager.cache.get_mut(&test_filename_1).unwrap().next().is_some());
-    assert!(test_manager.cache.get_mut(&test_filename_1).unwrap().next().is_none());
+        let test_filename_2 = "/tmp/test_add_file.file2.csv".to_string();
+        let test_contents_2 = format!("{},{},{}\n{},{},{}\n{},{},{}\n",
+                                        "123", "aaa", "888",
+                                        "124", "aaa", "888",
+                                        "127", "aaa", "888");
 
-    // Check the second file's number of lines
-    assert!(test_manager.cache.get_mut(&test_filename_2).unwrap().next().is_some());
-    assert!(test_manager.cache.get_mut(&test_filename_2).unwrap().next().is_some());
-    assert!(test_manager.cache.get_mut(&test_filename_2).unwrap().next().is_none());
-}
+        create_file(&test_filename_2, test_contents_2);
 
-#[test]
-fn test_load_from_glob() {
-    // load_from_glob function signiture
-    // (&mut self, glob_choice: &String, delimiter: char, index: usize) -> Result<String, String>
-    let glob_choice_1 = "tests/files/data1.tsv";
-    let glob_choice_2 = "tests/files/data?.tsv";
+        // TODO: Get this in the for loop
+        for filename in [&test_filename_1, &test_filename_2].into_iter() {
+            println!("{}", filename);
+        }
 
-    assert_eq!(glob_choice_1, "tests/files/data1.tsv");
-    assert_eq!(glob_choice_2, "tests/files/data?.tsv");
+        // Add the first file and sanity check
+        let result = MergeFileManager::new_merge_file(&test_filename_1, '\t', 0);
+        assert!(result.is_ok());
+
+        let mergefile = result.unwrap();
+        assert_eq!(mergefile.filename, test_filename_1);
+        assert_eq!(mergefile.current_merge_key, "123");
+
+        // Add the second file and sanity check
+        let result = MergeFileManager::new_merge_file(&test_filename_2, ',', 0);
+        assert!(result.is_ok());
+
+        let mergefile = result.unwrap();
+        assert_eq!(mergefile.filename, test_filename_2);
+        assert_eq!(mergefile.current_merge_key, "123");
+
+        let _ = fs::remove_file(test_filename_1);
+        let _ = fs::remove_file(test_filename_2);
+
+    }
+
+    #[test]
+    fn test_retrieve_from_glob() {
+        let test_filename_1 = "/tmp/test_retrieve_from_glob.file1.tsv".to_string();
+        let test_contents_1 = format!("{}\t{}\t{}\n{}\t{}\t{}\n{}\t{}\t{}\n",
+                                        "123", "bbb", "999",
+                                        "124", "bbb", "999",
+                                        "125", "bbb", "999");
+
+        create_file(&test_filename_1, test_contents_1);
+
+        let test_filename_2 = "/tmp/test_retrieve_from_glob.file2.tsv".to_string();
+        let test_contents_2 = format!("{}\t{}\t{}\n{}\t{}\t{}\n{}\t{}\t{}\n",
+                                        "123", "aaa", "888",
+                                        "124", "aaa", "888",
+                                        "127", "aaa", "888");
+
+        create_file(&test_filename_2, test_contents_2);
+
+        // Load a glob with a single file into the cache
+        let result = MergeFileManager::retrieve_from_glob("/tmp/test_retrieve_from_glob.file1.tsv", '\t', 0);
+        assert!(result.is_ok());
+
+        let merge_files = result.unwrap();
+        assert_eq!(merge_files.len(), 1);
+
+        // Load a glob with a single file into the cache
+        let result = MergeFileManager::retrieve_from_glob("/tmp/test_retrieve_from_glob.file?.tsv", '\t', 0);
+        assert!(result.is_ok());
+
+        let merge_files = result.unwrap();
+        assert_eq!(merge_files.len(), 2);
+
+        let _ = fs::remove_file(test_filename_1);
+        let _ = fs::remove_file(test_filename_2);
+    }
+
+    #[test]
+    fn test_retrieve_from_cache() {
+        let test_filename_1 = "/tmp/test_retrieve_from_glob.file1.tsv".to_string();
+        let test_contents_1 = format!("{}\t{}\t{}\n{}\t{}\t{}\n{}\t{}\t{}\n",
+                                        "123", "bbb", "999",
+                                        "124", "bbb", "999",
+                                        "125", "bbb", "999");
+
+        create_file(&test_filename_1, test_contents_1);
+
+        let test_filename_2 = "/tmp/test_retrieve_from_glob.file2.tsv".to_string();
+        let test_contents_2 = format!("{}\t{}\t{}\n{}\t{}\t{}\n{}\t{}\t{}\n",
+                                        "123", "aaa", "888",
+                                        "124", "aaa", "888",
+                                        "127", "aaa", "888");
+
+        create_file(&test_filename_2, test_contents_2);
+
+        let cache_filename = "/tmp/test_retrieve_from_cache.cache".to_string();
+        let cache_contents = format!(
+            "{},{},{},{}\n\
+             {},{},{},{}\n",
+            test_filename_1, "", "", "",
+            test_filename_2, "", "", ""
+        );
+
+        create_file(&cache_filename, cache_contents);
+
+        let result = MergeFileManager::retrieve_from_cache(&cache_filename, '\t', 0);
+        assert!(result.is_ok());
+
+        let merge_files = result.unwrap();
+        assert_eq!(merge_files.len(), 2);
+
+        let _ = fs::remove_file(test_filename_1);
+        let _ = fs::remove_file(test_filename_2);
+        let _ = fs::remove_file(cache_filename);
+    }
+
+    #[test]
+    fn test_write_cache() {
+        let test_filename_1 = "/tmp/test_write_cache.file1.tsv".to_string();
+        let test_contents_1 = format!("{}\t{}\t{}\n{}\t{}\t{}\n{}\t{}\t{}\n",
+                                        "123", "bbb", "999",
+                                        "124", "bbb", "999",
+                                        "125", "bbb", "999");
+
+        create_file(&test_filename_1, test_contents_1);
+
+        let test_filename_2 = "/tmp/test_write_cache.file2.tsv".to_string();
+        let test_contents_2 = format!("{}\t{}\t{}\n{}\t{}\t{}\n{}\t{}\t{}\n",
+                                        "123", "aaa", "888",
+                                        "124", "aaa", "888",
+                                        "127", "aaa", "888");
+
+        create_file(&test_filename_2, test_contents_2);
+
+        let cache_filename = "/tmp/test_cache.cache".to_string();
+        let mut cache = HashMap::new();
+
+        // Load a glob with a single file into the cache
+        let result = MergeFileManager::retrieve_from_glob("/tmp/test_write_cache.file?.tsv", '\t', 0);
+        assert!(result.is_ok());
+
+        let merge_files = result.unwrap();
+        cache.extend(merge_files);
+        assert_eq!(cache.len(), 2);
+
+        let result = MergeFileManager::write_cache(&cache_filename, cache);
+        assert!(result.is_ok());
+
+        let result = MergeFileManager::retrieve_from_cache(&cache_filename, '\t', 0);
+        assert!(result.is_ok());
+
+        let merge_files = result.unwrap();
+        assert_eq!(merge_files.len(), 2);
+    }
 }

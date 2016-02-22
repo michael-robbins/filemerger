@@ -20,44 +20,53 @@ pub struct MergeFile {
     delimiter: char,
     index: usize,
     line: String,
-    current_merge_key: String,
+    pub current_merge_key: String,
     pub beginning_merge_key: String,
     pub ending_merge_key: String,
 }
 
 impl MergeFile {
-    // Unit test: Create MergeFile with valid test data
-    // Unit test: Create MergeFile with invalid test data
-
-    pub fn new(filename: &String, delimiter: char, index: usize) -> io::Result<MergeFile> {
+    /// Constructs a new `MergeFile`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut merge_file = MergeFile::new("/path/to/data.psv", '|', 1);
+    pub fn new(filename: &str, delimiter: char, index: usize) -> io::Result<MergeFile> {
+        // Unit test: Create MergeFile with valid test data
+        // Unit test: Create MergeFile with invalid test data
         let filepath = Path::new(filename);
+
         let file_ext = match filepath.extension() {
             Some(extension) => extension,
             None => return Err(Error::new(ErrorKind::Other, format!("Couldn't find file extension in {:?}", filepath))),
         };
 
         let file = try!(File::open(filepath));
-        let file_metadata = try!(file.metadata());
-        let filesize = file_metadata.len();
+        let filesize = try!(file.metadata()).len();
 
         // Figure out the input file's decompressor
-        let decompressor: Box<Read> = match file_ext.to_str().unwrap() {
-            "bz2" => {
+        let decompressor: Box<Read> = match file_ext.to_str() {
+            Some("bz2") => {
                 debug!("Using BzDecompressor as the input decompressor.");
                 Box::new(BzDecompressor::new(file))
             },
-            "gz" => {
+            Some("gz") => {
                 debug!("Using GzDecoder as the input decompressor.");
                 Box::new(GzDecoder::new(file).unwrap())
             },
-            _ => {
+            Some(_) => {
                 debug!("Assuming the file is uncompressed.");
                 Box::new(file)
+            },
+            None => {
+                warn!("Unable to aquire file extention for {}", filename);
+                return Err(Error::new(ErrorKind::Other, format!("File extension invalid?")))
             },
         };
 
         let merge_file = MergeFile {
-            filename: filepath.to_str().unwrap().to_string(),
+            filename: filename.to_string(),
             filesize: filesize,
             lines: BufReader::new(decompressor).lines(),
             delimiter: delimiter,
@@ -72,13 +81,14 @@ impl MergeFile {
     }
 
     pub fn fast_forward(&mut self, merge_start: &String) -> Result<&'static str,&'static str> {
+        debug!("MergeFile<{}>: Fastforwarding to {}", self.filename, merge_start);
         while self.current_merge_key < *merge_start {
             if self.next().is_none() {
-                debug!("Fast forward for {} hit EOF or failed to read, bailing", self.filename);
+                debug!("MergeFile<{}>: Fast forward hit EOF or failed to read, bailing", self.filename);
                 return Err("Hit EOF or failed to read");
             }
         }
-
+        debug!("MergeFile<{}>: Fastforwarded correctly!", self.filename);
         Ok("Fastwarded correctly")
     }
 
@@ -120,6 +130,12 @@ impl Iterator for MergeFile {
 }
 
 impl fmt::Debug for MergeFile {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.filename)
+    }
+}
+
+impl fmt::Display for MergeFile {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.filename)
     }

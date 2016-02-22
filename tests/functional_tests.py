@@ -83,7 +83,7 @@ def run_test(context):
                 print("ERROR: Missing cache file???")
             assert(False)
 
-        assert(filecmp.cmp(context[DATA_CACHE], "./files/test1.cache"))
+        assert(filecmp.cmp(context[DATA_CACHE], "./files/cache_files/test1.cache"))
 
     elif context[TEST_TYPE] in [MERGE_FILES_FROM_CACHE, MERGE_FILES_FROM_GLOB]:
         with open(context[DATA_OUTPUT], "rb") as data_output_file:
@@ -105,21 +105,21 @@ tests = []
 tests.append({
     NAME: "Build a cache based of valid data files",
     TEST_TYPE: BUILD_CACHE,
-    BINARY: "../target/debug/file-merge",
+    BINARY: "../target/debug/file-merger",
     DATA_DELIMITER: "tsv",
     DATA_INDEX: "0",
-    DATA_GLOB: os.path.realpath(os.path.join(os.getcwd(), "./files/data?.tsv")),
+    DATA_GLOB: os.path.realpath(os.path.join(os.getcwd(), "./files/data_files/data?.tsv")),
     DATA_CACHE: "./test1.cache.tmp",
 })
 
 tests.append({
     NAME: "Merge files with a valid cache",
     TEST_TYPE: MERGE_FILES_FROM_CACHE,
-    BINARY: "../target/debug/file-merge",
+    BINARY: "../target/debug/file-merger",
     DATA_DELIMITER: "tsv",
     DATA_INDEX: "0",
-    DATA_CACHE: "./files/test2.cache",
-    DATA_OUTPUT: "./files/test2.output",
+    DATA_CACHE: "./files/cache_files/test2.cache",
+    DATA_OUTPUT: "./files/output_files/test2.output",
     DATA_START: "12345",
     DATA_END: "12347",
 })
@@ -127,11 +127,11 @@ tests.append({
 tests.append({
     NAME: "Merge files directly from valid data files",
     TEST_TYPE: MERGE_FILES_FROM_GLOB,
-    BINARY: "../target/debug/file-merge",
+    BINARY: "../target/debug/file-merger",
     DATA_DELIMITER: "tsv",
     DATA_INDEX: "0",
-    DATA_GLOB: os.path.realpath(os.path.join(os.getcwd(), "./files/data?.tsv")),
-    DATA_OUTPUT: "./files/test3.output",
+    DATA_GLOB: os.path.realpath(os.path.join(os.getcwd(), "./files/data_files/data?.tsv")),
+    DATA_OUTPUT: "./files/output_files/test3.output",
     DATA_START: "12345",
     DATA_END: "12347",
 })
