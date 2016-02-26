@@ -131,14 +131,14 @@ impl MergeFileManager {
     /// merge_manager.load_from_glob("/data/*.tsv", '\t', 0);
     /// merge_manager.begin_merge("zzz");
     /// ```
-    pub fn begin_merge(mut cache: HashMap<String, MergeFile>, merge_start: &String, merge_end: &String, print_merge_output: bool) {
+    pub fn begin_merge(mut cache: HashMap<String, MergeFile>, merge_start: &String, merge_end: &String, print_merge_output: bool) -> Vec<MergeFile>{
         info!("Beginning merge ({} -> {})", merge_start, merge_end);
 
         // First fastforward all cache entries removing the stale ones
         let mut files_to_delete: Vec<String> = vec!();
 
         for (_, merge_file) in cache.iter_mut() {
-            if merge_file.fast_forward(&merge_start).is_err() {
+            if merge_file.fast_forward(merge_start).is_err() {
                 files_to_delete.push(merge_file.filename.clone());
             }
         }
@@ -152,7 +152,7 @@ impl MergeFileManager {
         let mut heap: BinaryHeap<MergeFile> = BinaryHeap::from(MergeFileManager::cache_to_vec(cache));
 
         // Create a discarded_cache of files, as once we pop the file off the heap, we can't insert it after it's bad
-        let mut discarded_heap: Vec<MergeFile> = Vec::new();
+        let mut discarded: Vec<MergeFile> = Vec::new();
 
         //while cache.len() > 0 {
         while let Some(mut next_file) = heap.pop() {
@@ -163,7 +163,7 @@ impl MergeFileManager {
                 // Check if the line has exceeded the merge_end key
                 if result.0 > *merge_end {
                     info!("MergeFile<{}> has hit end bound ({}>{}), discarding from cache", next_file.filename, result.0, merge_end);
-                    discarded_heap.push(next_file);
+                    discarded.push(next_file);
                 } else {
                     // Print the line (if required) then push the MergeFile back into the heap
                     if print_merge_output {
@@ -174,9 +174,11 @@ impl MergeFileManager {
                 }
             } else {
                 println!("We hit EOF for {} with a final merge key of {}", next_file.filename, next_file.ending_merge_key);
-                discarded_heap.push(next_file);
+                discarded.push(next_file);
             }
         }
+
+        discarded
     }
 
     /// Consumes the cache, turning it into a sorted vector.
@@ -190,7 +192,7 @@ impl MergeFileManager {
     /// let cache = merge_manager.load_from_glob("/data/*.tsv", '\t', 0);
     /// merge_manager.write_cache("/data/caches/data.cache".to_string(), cache);
     /// ```
-    pub fn write_cache(cache_filename: &String, cache: HashMap<String, MergeFile>) -> io::Result<String> {
+    pub fn write_cache(cache_filename: &str, cache: HashMap<String, MergeFile>) -> io::Result<String> {
         // TODO: Unit test: Given a filename, test the provided cache writing
         // TODO: Unit test: Given an invalid filename, test the writing ability
         info!("Writing out cache to disk => {}!", cache_filename);
@@ -218,7 +220,7 @@ impl MergeFileManager {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    //use std::collections::HashMap;
     use std::io::prelude::*;
     use std::io::BufWriter;
     use std::path::Path;
@@ -227,7 +229,7 @@ mod tests {
 
     use super::MergeFileManager;
 
-    fn create_file(filename: &String, contents: String) {
+    fn create_file(filename: &str, contents: String) {
         let mut temp_file = BufWriter::new(File::create(Path::new(filename)).unwrap());
         temp_file.write(contents.as_ref()).unwrap();
         let _ = temp_file.flush();
@@ -237,26 +239,25 @@ mod tests {
     fn test_add_file() {
         // Set up the test data
         // TODO: Add the PID of the process into the filename
-        let test_filename_1 = "/tmp/test_add_file.file1.tsv".to_string();
-        let test_contents_1 = format!("{}\t{}\t{}\n{}\t{}\t{}\n{}\t{}\t{}\n",
+        let test_filename_1 = "/tmp/test_add_file.file1.tsv";
+        let test_contents_1 = format!("{}\t{}\t{}\n\
+                                       {}\t{}\t{}\n\
+                                       {}\t{}\t{}\n",
                                         "123", "bbb", "999",
                                         "124", "bbb", "999",
                                         "125", "bbb", "999");
 
-        create_file(&test_filename_1, test_contents_1);
+        create_file(test_filename_1, test_contents_1);
 
-        let test_filename_2 = "/tmp/test_add_file.file2.csv".to_string();
-        let test_contents_2 = format!("{},{},{}\n{},{},{}\n{},{},{}\n",
+        let test_filename_2 = "/tmp/test_add_file.file2.csv";
+        let test_contents_2 = format!("{},{},{}\n\
+                                       {},{},{}\n\
+                                       {},{},{}\n",
                                         "123", "aaa", "888",
                                         "124", "aaa", "888",
                                         "127", "aaa", "888");
 
-        create_file(&test_filename_2, test_contents_2);
-
-        // TODO: Get this in the for loop
-        for filename in [&test_filename_1, &test_filename_2].into_iter() {
-            println!("{}", filename);
-        }
+        create_file(test_filename_2, test_contents_2);
 
         // Add the first file and sanity check
         let result = MergeFileManager::new_merge_file(&test_filename_1, '\t', 0);
@@ -281,21 +282,25 @@ mod tests {
 
     #[test]
     fn test_retrieve_from_glob() {
-        let test_filename_1 = "/tmp/test_retrieve_from_glob.file1.tsv".to_string();
-        let test_contents_1 = format!("{}\t{}\t{}\n{}\t{}\t{}\n{}\t{}\t{}\n",
+        let test_filename_1 = "/tmp/test_retrieve_from_glob.file1.tsv";
+        let test_contents_1 = format!("{}\t{}\t{}\n
+                                       {}\t{}\t{}\n
+                                       {}\t{}\t{}\n",
                                         "123", "bbb", "999",
                                         "124", "bbb", "999",
                                         "125", "bbb", "999");
 
-        create_file(&test_filename_1, test_contents_1);
+        create_file(test_filename_1, test_contents_1);
 
-        let test_filename_2 = "/tmp/test_retrieve_from_glob.file2.tsv".to_string();
-        let test_contents_2 = format!("{}\t{}\t{}\n{}\t{}\t{}\n{}\t{}\t{}\n",
+        let test_filename_2 = "/tmp/test_retrieve_from_glob.file2.tsv";
+        let test_contents_2 = format!("{}\t{}\t{}\n\
+                                       {}\t{}\t{}\n\
+                                       {}\t{}\t{}\n",
                                         "123", "aaa", "888",
                                         "124", "aaa", "888",
                                         "127", "aaa", "888");
 
-        create_file(&test_filename_2, test_contents_2);
+        create_file(test_filename_2, test_contents_2);
 
         // Load a glob with a single file into the cache
         let result = MergeFileManager::retrieve_from_glob("/tmp/test_retrieve_from_glob.file1.tsv", '\t', 0);
@@ -303,6 +308,7 @@ mod tests {
 
         let merge_files = result.unwrap();
         assert_eq!(merge_files.len(), 1);
+        assert!(merge_files.values().any(|x|x.filename == test_filename_1));
 
         // Load a glob with a single file into the cache
         let result = MergeFileManager::retrieve_from_glob("/tmp/test_retrieve_from_glob.file?.tsv", '\t', 0);
@@ -310,6 +316,8 @@ mod tests {
 
         let merge_files = result.unwrap();
         assert_eq!(merge_files.len(), 2);
+        assert!(merge_files.values().any(|x|x.filename == test_filename_1));
+        assert!(merge_files.values().any(|x|x.filename == test_filename_2));
 
         let _ = fs::remove_file(test_filename_1);
         let _ = fs::remove_file(test_filename_2);
@@ -317,23 +325,23 @@ mod tests {
 
     #[test]
     fn test_retrieve_from_cache() {
-        let test_filename_1 = "/tmp/test_retrieve_from_glob.file1.tsv".to_string();
-        let test_contents_1 = format!("{}\t{}\t{}\n{}\t{}\t{}\n{}\t{}\t{}\n",
-                                        "123", "bbb", "999",
-                                        "124", "bbb", "999",
-                                        "125", "bbb", "999");
+        let test_filename_1 = "/tmp/test_retrieve_from_cache.file1.tsv";
+        let test_contents_1 = format!("{key_1}\t{foo}\t{bar}\n\
+                                       {key_2}\t{foo}\t{bar}\n\
+                                       {key_3}\t{foo}\t{bar}\n",
+                                       key_1="123", key_2="124", key_3="125", foo="bbb", bar="999");
 
-        create_file(&test_filename_1, test_contents_1);
+        create_file(test_filename_1, test_contents_1);
 
-        let test_filename_2 = "/tmp/test_retrieve_from_glob.file2.tsv".to_string();
-        let test_contents_2 = format!("{}\t{}\t{}\n{}\t{}\t{}\n{}\t{}\t{}\n",
-                                        "123", "aaa", "888",
-                                        "124", "aaa", "888",
-                                        "127", "aaa", "888");
+        let test_filename_2 = "/tmp/test_retrieve_from_cache.file2.tsv";
+        let test_contents_2 = format!("{key_1}\t{foo}\t{bar}\n\
+                                       {key_2}\t{foo}\t{bar}\n\
+                                       {key_3}\t{foo}\t{bar}\n",
+                                       key_1="123", key_2="124", key_3="127", foo="aaa", bar="888");
 
-        create_file(&test_filename_2, test_contents_2);
+        create_file(test_filename_2, test_contents_2);
 
-        let cache_filename = "/tmp/test_retrieve_from_cache.cache".to_string();
+        let cache_filename = "/tmp/test_retrieve_from_cache.cache";
         let cache_contents = format!(
             "{},{},{},{}\n\
              {},{},{},{}\n",
@@ -348,6 +356,8 @@ mod tests {
 
         let merge_files = result.unwrap();
         assert_eq!(merge_files.len(), 2);
+        assert!(merge_files.values().any(|x|x.filename == test_filename_1));
+        assert!(merge_files.values().any(|x|x.filename == test_filename_2));
 
         let _ = fs::remove_file(test_filename_1);
         let _ = fs::remove_file(test_filename_2);
@@ -355,41 +365,122 @@ mod tests {
     }
 
     #[test]
-    fn test_write_cache() {
-        let test_filename_1 = "/tmp/test_write_cache.file1.tsv".to_string();
-        let test_contents_1 = format!("{}\t{}\t{}\n{}\t{}\t{}\n{}\t{}\t{}\n",
+    fn test_cache_to_vec() {
+        // Build up a cache
+        let test_filename_1 = "/tmp/test_cache_to_vec.file1.tsv";
+        let test_contents_1 = format!("{}\t{}\t{}\n\
+                                       {}\t{}\t{}\n\
+                                       {}\t{}\t{}\n",
                                         "123", "bbb", "999",
                                         "124", "bbb", "999",
                                         "125", "bbb", "999");
 
-        create_file(&test_filename_1, test_contents_1);
+        create_file(test_filename_1, test_contents_1);
 
-        let test_filename_2 = "/tmp/test_write_cache.file2.tsv".to_string();
-        let test_contents_2 = format!("{}\t{}\t{}\n{}\t{}\t{}\n{}\t{}\t{}\n",
+        let test_filename_2 = "/tmp/test_cache_to_vec.file2.tsv";
+        let test_contents_2 = format!("{}\t{}\t{}\n\
+                                       {}\t{}\t{}\n\
+                                       {}\t{}\t{}\n",
                                         "123", "aaa", "888",
                                         "124", "aaa", "888",
                                         "127", "aaa", "888");
 
-        create_file(&test_filename_2, test_contents_2);
+        create_file(test_filename_2, test_contents_2);
 
-        let cache_filename = "/tmp/test_cache.cache".to_string();
-        let mut cache = HashMap::new();
+        let cache = MergeFileManager::retrieve_from_glob("/tmp/test_cache_to_vec.file?.tsv", '\t', 0).unwrap();
+
+        // Create the vec and ensure it only contains the two elements from above
+        let test_vec = MergeFileManager::cache_to_vec(cache);
+
+        assert_eq!(test_vec.len(), 2);
+        assert!(test_vec.iter().any(|x|x.filename == test_filename_1));
+        assert!(test_vec.iter().any(|x|x.filename == test_filename_2));
+
+        let _ = fs::remove_file(test_filename_1);
+        let _ = fs::remove_file(test_filename_2);
+    }
+
+    #[test]
+    fn test_begin_merge() {
+        //pub fn begin_merge(mut cache: HashMap<String, MergeFile>, merge_start: &String, merge_end: &String, print_merge_output: bool) {
+        let test_filename_1 = "/tmp/test_begin_merge.file1.tsv";
+        let test_contents_1 = format!("{}\t{}\t{}\n\
+                                       {}\t{}\t{}\n\
+                                       {}\t{}\t{}\n",
+                                        "123", "bbb", "999",
+                                        "124", "bbb", "999",
+                                        "125", "bbb", "999");
+
+        create_file(test_filename_1, test_contents_1);
+
+        let test_filename_2 = "/tmp/test_begin_merge.file2.tsv";
+        let test_contents_2 = format!("{}\t{}\t{}\n\
+                                       {}\t{}\t{}\n\
+                                       {}\t{}\t{}\n",
+                                        "123", "aaa", "888",
+                                        "124", "aaa", "888",
+                                        "127", "aaa", "888");
+
+        create_file(test_filename_2, test_contents_2);
 
         // Load a glob with a single file into the cache
-        let result = MergeFileManager::retrieve_from_glob("/tmp/test_write_cache.file?.tsv", '\t', 0);
-        assert!(result.is_ok());
-
-        let merge_files = result.unwrap();
-        cache.extend(merge_files);
+        let cache = MergeFileManager::retrieve_from_glob("/tmp/test_begin_merge.file?.tsv", '\t', 0).unwrap();
         assert_eq!(cache.len(), 2);
 
-        let result = MergeFileManager::write_cache(&cache_filename, cache);
+        let cache_len = cache.len();
+
+        let merge_start = "124".to_string();
+        let merge_end = "126".to_string();
+
+        let discarded = MergeFileManager::begin_merge(cache, &merge_start, &merge_end, false);
+
+        // Both original files should exist and have correct final merge keys
+        assert_eq!(discarded.len(), cache_len);
+        assert!(discarded.iter().any(|x|x.filename == test_filename_1 && x.ending_merge_key <= merge_end));
+        assert!(discarded.iter().any(|x|x.filename == test_filename_2 && x.ending_merge_key <= merge_end));
+
+        let _ = fs::remove_file(test_filename_1);
+        let _ = fs::remove_file(test_filename_2);
+    }
+
+    #[test]
+    fn test_write_cache() {
+        let test_filename_1 = "/tmp/test_write_cache.file1.tsv";
+        let test_contents_1 = format!("{}\t{}\t{}\n\
+                                       {}\t{}\t{}\n\
+                                       {}\t{}\t{}\n",
+                                        "123", "bbb", "999",
+                                        "124", "bbb", "999",
+                                        "125", "bbb", "999");
+
+        create_file(test_filename_1, test_contents_1);
+
+        let test_filename_2 = "/tmp/test_write_cache.file2.tsv";
+        let test_contents_2 = format!("{}\t{}\t{}\n\
+                                       {}\t{}\t{}\n\
+                                       {}\t{}\t{}\n",
+                                        "123", "aaa", "888",
+                                        "124", "aaa", "888",
+                                        "127", "aaa", "888");
+
+        create_file(test_filename_2, test_contents_2);
+
+        // Load a glob with a single file into the cache
+        let cache = MergeFileManager::retrieve_from_glob("/tmp/test_write_cache.file?.tsv", '\t', 0).unwrap();
+        assert_eq!(cache.len(), 2);
+
+        let test_cache_filename = "/tmp/test_cache.cache";
+        let result = MergeFileManager::write_cache(&test_cache_filename, cache);
         assert!(result.is_ok());
 
-        let result = MergeFileManager::retrieve_from_cache(&cache_filename, '\t', 0);
+        let result = MergeFileManager::retrieve_from_cache(&test_cache_filename, '\t', 0);
         assert!(result.is_ok());
 
         let merge_files = result.unwrap();
         assert_eq!(merge_files.len(), 2);
+
+        let _ = fs::remove_file(test_filename_1);
+        let _ = fs::remove_file(test_filename_2);
+        let _ = fs::remove_file(test_cache_filename);
     }
 }

@@ -10,11 +10,20 @@ import os
 import sys
 import time
 import filecmp
+import argparse
 import subprocess
 
 from shlex import split
 
-VERBOSE = False
+parser = argparse.ArgumentParser(description="Run the functional tests.")
+parser.add_argument("-v","--verbose", action="count", help="Print out a bunch of verbose output")
+
+args = parser.parse_args()
+
+if args.verbose:
+    VERBOSE = True
+else:
+    VERBOSE = False
 
 # Define context keys
 NAME = "name"
