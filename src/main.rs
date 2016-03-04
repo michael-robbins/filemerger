@@ -15,6 +15,7 @@ mod merge_file_manager;
 mod merge_file;
 
 use merge_file_manager::MergeFileManager;
+use std::collections::BinaryHeap;
 use std::collections::HashMap;
 use getopts::Options;
 use std::path::Path;
@@ -179,10 +180,9 @@ fn main() {
     // Allocate an empty cache
     let mut mergefile_cache = HashMap::new();
 
+    // If we have a cache file, preload it
     if cache_present && cache_exists {
-        let result = MergeFileManager::retrieve_from_cache(&cache_filename, delimiter, index);
-
-        match result {
+        match MergeFileManager::retrieve_from_cache(&cache_filename, delimiter, index) {
             Ok(merge_files) => {
                 mergefile_cache.extend(merge_files);
                 debug!("Added cachefile {} to the cache", cache_filename)
@@ -194,7 +194,7 @@ fn main() {
         }
     } else {
         if cache_present && glob_present {
-            info!("No cache provided, but we will write out one.")
+            info!("Cache provided doesn't exist, so we will write a new one out.")
         } else {
             info!("We didn't get any cache file, loading from globs and merging directly!");
         }
@@ -203,9 +203,7 @@ fn main() {
     if glob_present {
         debug!("Getting all files from the glob(s)!");
         for glob_choice in glob_choices {
-            let result = MergeFileManager::retrieve_from_glob(&glob_choice, delimiter, index);
-
-            match result {
+            match MergeFileManager::retrieve_from_glob(&glob_choice, delimiter, index) {
                 Ok(merge_files) => {
                     mergefile_cache.extend(merge_files);
                     debug!("Added glob {} to the cache", glob_choice);
@@ -219,8 +217,6 @@ fn main() {
 
         if cache_present {
             // Write out the merge_cache to disk as the new cache file
-            debug!("Creating new cache file");
-
             match MergeFileManager::write_cache(&cache_filename, mergefile_cache) {
                 Ok(result) => {info!("{}", result)},
                 Err(result) => {error!("{}", result)},
@@ -232,11 +228,14 @@ fn main() {
     }
 
     // Begin the merge process
+    let cache = MergeFileManager::fast_forward_cache(mergefile_cache, &key_start);
+    let heap = BinaryHeap::from(MergeFileManager::cache_to_vec(cache));
+
     if matches.opt_present("key-end") {
         info!("Beginning merge -> {}", &key_end);
+        MergeFileManager::begin_merge(heap, &key_start, &key_end, true);
     } else {
         info!("Beginning merge -> EOF");
+        MergeFileManager::begin_merge_to_end(heap, &key_start, true);
     }
-
-    MergeFileManager::begin_merge(mergefile_cache, &key_start, &key_end, true);
 }

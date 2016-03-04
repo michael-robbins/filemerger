@@ -11,7 +11,7 @@ use std::io;
 
 // Optional decompressors for merge files
 use flate2::read::GzDecoder;
-use bzip2::reader::BzDecompressor;
+use bzip2::read::BzDecoder;
 
 pub struct MergeFile {
     pub filename: String,
@@ -32,6 +32,7 @@ impl MergeFile {
     ///
     /// ```
     /// let mut merge_file = MergeFile::new("/path/to/data.psv", '|', 1);
+    /// ```
     pub fn new(filename: &str, delimiter: char, index: usize) -> io::Result<MergeFile> {
         // Unit test: Create MergeFile with valid test data
         // Unit test: Create MergeFile with invalid test data
@@ -49,7 +50,7 @@ impl MergeFile {
         let decompressor: Box<Read> = match file_ext.to_str() {
             Some("bz2") => {
                 debug!("Using BzDecompressor as the input decompressor.");
-                Box::new(BzDecompressor::new(file))
+                Box::new(BzDecoder::new(file))
             },
             Some("gz") => {
                 debug!("Using GzDecoder as the input decompressor.");
@@ -171,5 +172,274 @@ impl cmp::PartialEq for MergeFile {
             return true;
         }
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::prelude::*;
+    use std::io::BufWriter;
+    use std::path::Path;
+    use std::fs::File;
+    use std::fs;
+
+    use super::MergeFile;
+
+    fn create_file(filename: &str, contents: String) {
+        let mut temp_file = BufWriter::new(File::create(Path::new(filename)).unwrap());
+        temp_file.write(contents.as_ref()).unwrap();
+        let _ = temp_file.flush();
+    }
+
+    #[test]
+    fn test_new() {
+        // Set up the test data
+        // TODO: Add the PID of the process into the filename
+        let test_filename_1 = "/tmp/test_new.file1.tsv";
+        let test_contents_1 = format!("{}\t{}\t{}\n\
+                                       {}\t{}\t{}\n\
+                                       {}\t{}\t{}\n",
+                                        "123", "bbb", "999",
+                                        "124", "bbb", "999",
+                                        "125", "bbb", "999");
+
+        create_file(test_filename_1, test_contents_1);
+
+        // Add the first file and sanity check
+        let result = MergeFile::new(&test_filename_1, '\t', 0);
+        assert!(result.is_ok());
+
+        let mergefile = result.unwrap();
+        assert_eq!(mergefile.filename, test_filename_1);
+
+        let test_file_1 = File::open(&test_filename_1).unwrap();
+        let test_filesize_1 = test_file_1.metadata().unwrap().len();
+        assert_eq!(mergefile.filesize, test_filesize_1);
+
+        assert_eq!(mergefile.delimiter, '\t');
+        assert_eq!(mergefile.index, 0);
+
+        assert_eq!(mergefile.line, "");
+        assert_eq!(mergefile.ending_merge_key, "");
+        assert_eq!(mergefile.current_merge_key, "");
+        assert_eq!(mergefile.beginning_merge_key, "");
+
+        let _ = fs::remove_file(test_filename_1);
+    }
+
+    #[test]
+    fn test_fast_forward() {
+        // Set up the test data
+        // TODO: Add the PID of the process into the filename
+        let test_filename_1 = "/tmp/test_fast_forward.file1.tsv";
+        let test_contents_1 = format!("{}\t{}\t{}\n\
+                                       {}\t{}\t{}\n\
+                                       {}\t{}\t{}\n",
+                                        "123", "bbb", "999",
+                                        "124", "bbb", "999",
+                                        "125", "bbb", "999");
+
+        create_file(test_filename_1, test_contents_1);
+
+        // Add the first file and sanity check
+        let result = MergeFile::new(&test_filename_1, '\t', 0);
+        assert!(result.is_ok());
+
+        let mut mergefile = result.unwrap();
+        assert_eq!(mergefile.filename, test_filename_1);
+
+        // Test a fast forward to the middle of the file
+        let result = mergefile.fast_forward(&"124".to_string());
+        assert!(result.is_ok());
+
+        assert_eq!(mergefile.line, "124\tbbb\t999");
+        assert_eq!(mergefile.current_merge_key, "124");
+        assert_eq!(mergefile.beginning_merge_key, ""); // MergeFileManager::new_merge_file sets
+        assert_eq!(mergefile.ending_merge_key, "");
+
+        // Test a fast forward to the end of the file
+        let result = mergefile.fast_forward(&"126".to_string());
+        assert!(result.is_err());
+
+        assert_eq!(mergefile.line, "125\tbbb\t999");
+        assert_eq!(mergefile.current_merge_key, "125");
+        assert_eq!(mergefile.beginning_merge_key, ""); // MergeFileManager::new_merge_file sets
+        assert_eq!(mergefile.ending_merge_key, "125");
+
+        let _ = fs::remove_file(test_filename_1);
+    }
+
+
+    #[test]
+    fn test_fast_forward_to_end() {
+        // Set up the test data
+        // TODO: Add the PID of the process into the filename
+        let test_filename_1 = "/tmp/test_fast_forward_to_end.file1.tsv";
+        let test_contents_1 = format!("{}\t{}\t{}\n\
+                                       {}\t{}\t{}\n\
+                                       {}\t{}\t{}\n",
+                                        "123", "bbb", "999",
+                                        "124", "bbb", "999",
+                                        "125", "bbb", "999");
+
+        create_file(test_filename_1, test_contents_1);
+
+        // Add the first file and sanity check
+        let result = MergeFile::new(&test_filename_1, '\t', 0);
+        assert!(result.is_ok());
+
+        let mut mergefile = result.unwrap();
+        mergefile.fast_forward_to_end();
+
+        // Ensure the current line is the last one in the above contents
+        assert_eq!(mergefile.line, "125\tbbb\t999");
+        assert_eq!(mergefile.current_merge_key, "125");
+        assert_eq!(mergefile.beginning_merge_key, ""); // MergeFileManager::new_merge_file sets
+        assert_eq!(mergefile.ending_merge_key, "125");
+
+        let _ = fs::remove_file(test_filename_1);
+    }
+
+    #[test]
+    fn test_impl_iterator() {
+        // Set up the test data
+        // TODO: Add the PID of the process into the filename
+        let test_filename_1 = "/tmp/test_impl_formatting.file1.tsv";
+        let test_contents_1 = format!("{}\t{}\t{}\n\
+                                       {}\t{}\t{}\n\
+                                       {}\t{}\t{}\n",
+                                        "123", "bbb", "999",
+                                        "124", "bbb", "999",
+                                        "125", "bbb", "999");
+
+        create_file(test_filename_1, test_contents_1);
+
+        // Add the first file and sanity check
+        let result = MergeFile::new(&test_filename_1, '\t', 0);
+        assert!(result.is_ok());
+
+        let mut mergefile = result.unwrap();
+
+        assert_eq!(mergefile.line, "");
+        assert_eq!(mergefile.current_merge_key, "");
+
+        // Test line 1
+        let result = mergefile.next();
+        assert!(result.is_some());
+        assert_eq!(result, Some(("123".to_string(), "123\tbbb\t999".to_string())));
+
+        assert_eq!(mergefile.line, "123\tbbb\t999");
+        assert_eq!(mergefile.current_merge_key, "123");
+
+        // Test line 2
+        let result = mergefile.next();
+        assert!(result.is_some());
+        assert_eq!(result, Some(("124".to_string(), "124\tbbb\t999".to_string())));
+
+        assert_eq!(mergefile.line, "124\tbbb\t999");
+        assert_eq!(mergefile.current_merge_key, "124");
+
+        // Test line 3
+        let result = mergefile.next();
+        assert!(result.is_some());
+        assert_eq!(result, Some(("125".to_string(), "125\tbbb\t999".to_string())));
+
+        assert_eq!(mergefile.line, "125\tbbb\t999");
+        assert_eq!(mergefile.current_merge_key, "125");
+
+        // Test EOF
+        let result = mergefile.next();
+        assert!(result.is_none());
+        assert_eq!(result, None);
+
+        assert_eq!(mergefile.line, "125\tbbb\t999");
+        assert_eq!(mergefile.current_merge_key, "125");
+    }
+
+    #[test]
+    fn test_impl_formatting() {
+        // Set up the test data
+        // TODO: Add the PID of the process into the filename
+        let test_filename_1 = "/tmp/test_impl_formatting.file1.tsv";
+        let test_contents_1 = format!("{}\t{}\t{}\n\
+                                       {}\t{}\t{}\n\
+                                       {}\t{}\t{}\n",
+                                        "123", "bbb", "999",
+                                        "124", "bbb", "999",
+                                        "125", "bbb", "999");
+
+        create_file(test_filename_1, test_contents_1);
+
+        // Add the first file and sanity check
+        let result = MergeFile::new(&test_filename_1, '\t', 0);
+        assert!(result.is_ok());
+
+        let mergefile = result.unwrap();
+        assert_eq!(format!("{}", mergefile), test_filename_1); // Test fmt::Display
+        assert_eq!(format!("{:?}", mergefile), test_filename_1); // Test fmt::Debug
+
+        let _ = fs::remove_file(test_filename_1);
+    }
+
+    #[test]
+    fn test_impl_ordering_and_equality() {
+        // Set up the test data
+        // TODO: Add the PID of the process into the filename
+        let test_filename_1 = "/tmp/test_impl_ordering.file1.tsv";
+        let test_contents_1 = format!("{}\t{}\t{}\n\
+                                       {}\t{}\t{}\n\
+                                       {}\t{}\t{}\n",
+                                        "123", "bbb", "999",
+                                        "124", "bbb", "999",
+                                        "125", "bbb", "999");
+
+        create_file(test_filename_1, test_contents_1);
+
+        // TODO: Add the PID of the process into the filename
+        let test_filename_2 = "/tmp/test_impl_ordering.file2.tsv";
+        let test_contents_2 = format!("{}\t{}\t{}\n\
+                                       {}\t{}\t{}\n\
+                                       {}\t{}\t{}\n",
+                                        "124", "aaa", "888",
+                                        "125", "aaa", "888",
+                                        "126", "aaa", "888");
+
+        create_file(test_filename_2, test_contents_2);
+
+        // Create the first file and initialise it
+        let result = MergeFile::new(&test_filename_1, '\t', 0);
+        assert!(result.is_ok());
+
+        let mut mergefile_1 = result.unwrap();
+        let result = mergefile_1.fast_forward(&"123".to_string());
+        assert!(result.is_ok());
+
+        // Create the second file and initialise it
+        let result = MergeFile::new(&test_filename_1, '\t', 0);
+        assert!(result.is_ok());
+
+        let mut mergefile_2 = result.unwrap();
+        let result = mergefile_2.fast_forward(&"124".to_string());
+        assert!(result.is_ok());
+
+        assert!(mergefile_1 < mergefile_2); // File 1 (123) < File 2 (124)
+
+        // Increment File 1
+        let result = mergefile_1.next();
+        assert!(result.is_some());
+        assert!(mergefile_1 == mergefile_2); // File 1 (124) == File 2 (124)
+
+        // Increment File 1 again
+        let result = mergefile_1.next();
+        assert!(result.is_some());
+        assert!(mergefile_1 > mergefile_2); // File 1 (125) > File 2 (124)
+
+        // Increment File 2
+        let result = mergefile_2.next();
+        assert!(result.is_some());
+        assert!(mergefile_1 == mergefile_2); // File 1 (125) == File 2 (125)
+
+        let _ = fs::remove_file(test_filename_1);
+        let _ = fs::remove_file(test_filename_2);
     }
 }
