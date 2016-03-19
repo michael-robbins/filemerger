@@ -3,7 +3,7 @@ use std::collections::BinaryHeap;
 use std::io::{Error, ErrorKind};
 use std::collections::HashMap;
 use std::io::prelude::*;
-use std::path::Path;
+use std::path::PathBuf;
 use std::fs::File;
 use std::io;
 use glob;
@@ -80,11 +80,11 @@ impl MergeFileManager {
     /// let mut merge_manager = MergeFileManager::new();
     /// merge_manager.load_from_cache("/data/cache/file.cache", ',', 0);
     /// ```
-    pub fn retrieve_from_cache(cache_filepath: &str, delimiter: char, index: usize) -> io::Result<HashMap<String, MergeFile>> {
+    pub fn retrieve_from_cache(cache_filepath: &PathBuf, delimiter: char, index: usize) -> io::Result<HashMap<String, MergeFile>> {
         let mut cache: HashMap<String, MergeFile> = HashMap::new();
 
         // Attempt to read the cache file
-        let cache_file = BufReader::new(try!(File::open(Path::new(cache_filepath))));
+        let cache_file = BufReader::new(try!(File::open(cache_filepath)));
         let mut cache_file_lines = cache_file.lines();
 
         // Iterate over cache file reading in and creating new CacheFileEntry instances
@@ -122,18 +122,23 @@ impl MergeFileManager {
     }
 
     /// Consumes a HashMap<K, MergeFile> and returns one with only existing MergeFile(s)
-    pub fn fast_forward_cache(mut cache: HashMap<String, MergeFile>, merge_start: &String) -> HashMap<String, MergeFile> {
-        let mut files_to_delete: Vec<String> = vec!();
+    pub fn fast_forward_cache(mut cache: HashMap<String, MergeFile>, merge_start: Option<String>) -> HashMap<String, MergeFile> {
+        if merge_start.is_some() {
+            let mut files_to_delete: Vec<String> = vec!();
+            let merge_start = merge_start.unwrap();
 
-        for (_, merge_file) in cache.iter_mut() {
-            if merge_file.fast_forward(merge_start).is_err() {
-                files_to_delete.push(merge_file.filename.clone());
+            for (_, merge_file) in cache.iter_mut() {
+                if merge_file.fast_forward(&merge_start).is_err() {
+                    files_to_delete.push(merge_file.filename.clone());
+                }
             }
-        }
 
-        for filename in files_to_delete {
-            info!("Removing file {} from cache", filename);
-            cache.remove(&filename);
+            for filename in files_to_delete {
+                info!("Removing file {} from cache", filename);
+                cache.remove(&filename);
+            }
+        } else {
+            debug!("Fast forward got an empty merge_start, not doing anything.");
         }
 
         cache
@@ -149,55 +154,51 @@ impl MergeFileManager {
     /// merge_manager.load_from_glob("/data/*.tsv", '\t', 0);
     /// merge_manager.begin_merge("zzz");
     /// ```
-    pub fn begin_merge(mut heap: BinaryHeap<MergeFile>, merge_start: &String, merge_end: &String, print_merge_output: bool) -> Vec<MergeFile>{
-        info!("Beginning merge ({} -> {})", merge_start, merge_end);
+    pub fn begin_merge(mut heap: BinaryHeap<MergeFile>, merge_end: Option<String>, print_merge_output: bool) -> Vec<MergeFile>{
+        let mut discarded = Vec::new();
 
-        // Create a cache of discarded files, once we pop the file off the heap, we can't insert it after EOF
-        let mut discarded: Vec<MergeFile> = Vec::new();
+        if merge_end.is_some() {
+            let merge_end = merge_end.unwrap();
+            info!("Beginning merge -> {}", merge_end);
 
-        while let Some(mut next_file) = heap.pop() {
-            // Report on the line or EOF the file and add it to the discarded pile
-            if let Some(result) = next_file.next() {
-                // Check if the line has exceeded the merge_end key
-                if result.0 > *merge_end {
-                    info!("MergeFile<{}> has hit end bound ({}>{}), discarding from cache", next_file.filename, result.0, merge_end);
-                    discarded.push(next_file);
+            while let Some(mut next_file) = heap.pop() {
+                // Report on the line or EOF the file and add it to the discarded pile
+                if let Some(result) = next_file.next() {
+                    // Check if the line has exceeded the merge_end key
+                    if result.0 > merge_end {
+                        info!("MergeFile<{}> has hit end bound ({}>{}), discarding from cache", next_file.filename, result.0, merge_end);
+                        discarded.push(next_file);
+                    } else {
+                        // Print the line (if required) then push the MergeFile back into the heap
+                        if print_merge_output {
+                            println!("{}", result.1);
+                        }
+
+                        heap.push(next_file);
+                    }
                 } else {
-                    // Print the line (if required) then push the MergeFile back into the heap
+                    println!("We hit EOF for {} with a final merge key of {}", next_file.filename, next_file.ending_merge_key);
+                    discarded.push(next_file);
+                }
+            }
+        } else {
+            info!("Beginning merge -> EOF");
+
+            while let Some(mut next_file) = heap.pop() {
+                // Report on the line or EOF the file and add it to the discarded pile
+                if let Some(result) = next_file.next() {
                     if print_merge_output {
                         println!("{}", result.1);
                     }
 
                     heap.push(next_file);
+                } else {
+                    println!("We hit EOF for {} with a final merge key of {}", next_file.filename, next_file.ending_merge_key);
+                    discarded.push(next_file);
                 }
-            } else {
-                println!("We hit EOF for {} with a final merge key of {}", next_file.filename, next_file.ending_merge_key);
-                discarded.push(next_file);
             }
         }
 
-        discarded
-    }
-
-    pub fn begin_merge_to_end(mut heap: BinaryHeap<MergeFile>, merge_start: &String, print_merge_output: bool) -> Vec<MergeFile>{
-        info!("Beginning merge ({} -> EOF)", merge_start);
-
-        // Create a cache of discarded files, once we pop the file off the heap, we can't insert it after EOF
-        let mut discarded: Vec<MergeFile> = Vec::new();
-
-        while let Some(mut next_file) = heap.pop() {
-            // Report on the line or EOF the file and add it to the discarded pile
-            if let Some(result) = next_file.next() {
-                // Print the line (if required) then push the MergeFile back into the heap
-                if print_merge_output {
-                    println!("{}", result.1);
-                }
-                heap.push(next_file);
-            } else {
-                println!("We hit EOF for {} with a final merge key of {}", next_file.filename, next_file.ending_merge_key);
-                discarded.push(next_file);
-            }
-        }
 
         discarded
     }
@@ -213,13 +214,13 @@ impl MergeFileManager {
     /// let cache = merge_manager.load_from_glob("/data/*.tsv", '\t', 0);
     /// merge_manager.write_cache("/data/caches/data.cache".to_string(), cache);
     /// ```
-    pub fn write_cache(cache_filename: &str, cache: HashMap<String, MergeFile>) -> io::Result<String> {
+    pub fn write_cache(cache_filename: &PathBuf, cache: HashMap<String, MergeFile>) -> io::Result<String> {
         // TODO: Unit test: Given a filename, test the provided cache writing
         // TODO: Unit test: Given an invalid filename, test the writing ability
-        info!("Writing out cache to disk => {}!", cache_filename);
+        info!("Writing out cache to disk => {}!", cache_filename.display());
 
         // Open the file
-        let mut cache_file = BufWriter::new(try!(File::create(Path::new(cache_filename))));
+        let mut cache_file = BufWriter::new(try!(File::create(cache_filename)));
 
         // Drain the cache into a vec, sort it, then write its contents out to disk
         let mut merge_files = MergeFileManager::cache_to_vec(cache);
