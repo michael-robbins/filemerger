@@ -18,6 +18,7 @@ mod settings;
 use merge_file_manager::MergeFileManager;
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::env;
 
 fn main() {
@@ -29,19 +30,26 @@ fn main() {
 
     let settings = settings::load(args).unwrap();
 
-    let cache_present = settings.cache_path.to_str().unwrap() != "";
-    let cache_exists = settings.cache_path.is_file();
+    let cache_present = settings.cache_path.is_some();
+    let mut cache_exists = false;
+
+    let mut cache_path = PathBuf::from("");
+    if cache_present {
+        cache_path = settings.cache_path.unwrap();
+        cache_exists = true;
+    }
+
     let glob_present = settings.glob_choices.len() > 0;
 
     // If we have a cache file, preload it
     if cache_exists {
-        match MergeFileManager::retrieve_from_cache(&settings.cache_path, settings.delimiter, settings.index) {
+        match MergeFileManager::retrieve_from_cache(&cache_path, settings.delimiter, settings.index) {
             Ok(merge_files) => {
                 mergefile_cache.extend(merge_files);
-                debug!("Added cachefile {} to the cache", settings.cache_path.display())
+                debug!("Added cachefile {} to the cache", cache_path.display())
             },
             Err(error) => {
-                error!("Unable to load from cache file: {}", settings.cache_path.display());
+                error!("Unable to load from cache file: {}", cache_path.display());
                 error!("Error was: {}", error);
             }
         }
@@ -63,7 +71,7 @@ fn main() {
         }
 
         if cache_present {
-            match MergeFileManager::write_cache(&settings.cache_path, mergefile_cache) {
+            match MergeFileManager::write_cache(&cache_path, mergefile_cache) {
                 Ok(result) => {info!("{}", result)},
                 Err(result) => {error!("{}", result)},
             }

@@ -5,20 +5,19 @@ use getopts::Options;
 use std::process;
 use std::env;
 
-#[derive(Clone,Debug)]
+#[derive(Clone)]
 pub enum KeyType {
     String,
     Integer,
 }
 
-#[derive(Clone)]
 pub struct MergeSettings {
     pub delimiter: char,
     pub index: usize,
     pub key_start: Option<String>,
     pub key_end: Option<String>,
     pub key_type: KeyType,
-    pub cache_path: PathBuf,
+    pub cache_path: Option<PathBuf>,
     pub glob_choices: Vec<String>,
 }
 
@@ -41,6 +40,7 @@ pub fn load(args: Vec<String>) -> Option<MergeSettings> {
     // General options
     opts.optflag("h", "help", "Print out this help.");
     opts.optflagmulti("v", "verbose", "Prints out more info (able to be applied up to 3 times)");
+    opts.optopt("", "config-file", "Configuration file in YAML that contains most other settings", "/path/to/config.yaml");
 
     // Merge key options (required for both emitting and caching)
     opts.optopt("", "delimiter", "Raw character we split the line on", "'\t' || ',' || '|'");
@@ -118,27 +118,24 @@ pub fn load(args: Vec<String>) -> Option<MergeSettings> {
     }
 
     // Verify the --cache-file parameter
-    let mut cache_present = false;
-    let mut cache_filename = String::new();
+    let mut cache_path = None;
 
     if matches.opt_present("cache-file") {
-        cache_present = true;
-        cache_filename = matches.opt_str("cache-file").unwrap();
-        debug!("We got the following cache-file: {}", cache_filename);
+        let result = matches.opt_str("cache-filename").unwrap();
+        debug!("We got the following cache-file: {}", result);
+        cache_path = Some(PathBuf::from(result));
     } else {
         debug!("We didn't get any cache-file!");
     }
 
-    let cache_exists = PathBuf::from(&cache_filename).is_file();
-
     // Check that at least one required arg is present
-    if ! glob_present && ! cache_present {
+    if ! glob_present && cache_path.is_none() {
         error_usage_and_bail("Missing both glob and cache-file, we need at least one of them.", &program, &opts);
-    } else if ! glob_present && ! cache_exists {
+    } else if ! glob_present && ! cache_path.is_some() && cache_path.clone().unwrap().is_file() {
         error_usage_and_bail("No glob provided and the cache file doesn't exist? Nothing we can do here", &program, &opts);
     }
 
-    // key-start
+    // Verify the --key-start parameter
     let mut key_start = None;
     if matches.opt_present("key-start") {
         let result = matches.opt_str("key-start");
@@ -156,7 +153,7 @@ pub fn load(args: Vec<String>) -> Option<MergeSettings> {
         info!("--key-start was not supplied, merging from the start of each file");
     }
 
-    // key-end
+    // Verify the --key-end parameter
     let mut key_end = None;
     if matches.opt_present("key-end") {
         let result = matches.opt_str("key-end");
@@ -174,19 +171,29 @@ pub fn load(args: Vec<String>) -> Option<MergeSettings> {
         info!("--key-end was not supplied, merging until the end of each file");
     }
 
+    // Verify the --key-type parameter
     let mut key_type = KeyType::String;
     if matches.opt_present("key-type") {
         let result = matches.opt_str("key-type");
 
-        if result.is_some() && result.unwrap().trim() == "Integer" {
-            key_type = KeyType::Integer;
+        if result.is_some() {
+            let result = result.unwrap();
+
+            match result.trim() {
+                "Integer" => key_type = KeyType::Integer,
+                "String"  => key_type = KeyType::String,
+                _         => {
+                    warn!("--key-type unsupported, assuming a String type (slowest)");
+                    key_type = KeyType::String;
+                }
+            }
         }
     } else {
         info!("--key-type was not supplied, assuming a String type (slowest)");
     }
 
     Some(MergeSettings {
-        cache_path: PathBuf::from(&cache_filename),
+        cache_path: cache_path,
         glob_choices: glob_choices,
         delimiter: delimiter_char,
         index: index,

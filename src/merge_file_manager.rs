@@ -245,14 +245,14 @@ mod tests {
     use std::collections::BinaryHeap;
     use std::io::prelude::*;
     use std::io::BufWriter;
-    use std::path::Path;
+    use std::path::PathBuf;
     use std::fs::File;
     use std::fs;
 
     use super::MergeFileManager;
 
     fn create_file(filename: &str, contents: String) {
-        let mut temp_file = BufWriter::new(File::create(Path::new(filename)).unwrap());
+        let mut temp_file = BufWriter::new(File::create(PathBuf::from(filename)).unwrap());
         temp_file.write(contents.as_ref()).unwrap();
         let _ = temp_file.flush();
     }
@@ -373,7 +373,8 @@ mod tests {
 
         create_file(&cache_filename, cache_contents);
 
-        let result = MergeFileManager::retrieve_from_cache(&cache_filename, '\t', 0);
+        let cache_path = PathBuf::from(&cache_filename);
+        let result = MergeFileManager::retrieve_from_cache(&cache_path, '\t', 0);
         assert!(result.is_ok());
 
         let merge_files = result.unwrap();
@@ -454,10 +455,9 @@ mod tests {
         let merge_start = "124".to_string();
         let merge_end = "126".to_string();
 
-
-        let cache = MergeFileManager::fast_forward_cache(cache, &merge_start);
+        let cache = MergeFileManager::fast_forward_cache(cache, Some(merge_start));
         let heap = BinaryHeap::from(MergeFileManager::cache_to_vec(cache));
-        let discarded = MergeFileManager::begin_merge(heap, &merge_start, &merge_end, false);
+        let discarded = MergeFileManager::begin_merge(heap, Some(merge_end.clone()), false);
 
         // Both original files should exist and have correct final merge keys
         assert_eq!(discarded.len(), cache_len);
@@ -495,10 +495,11 @@ mod tests {
         assert_eq!(cache.len(), 2);
 
         let test_cache_filename = "/tmp/test_cache.cache";
-        let result = MergeFileManager::write_cache(&test_cache_filename, cache);
+        let test_cache_path = PathBuf::from(&test_cache_filename);
+        let result = MergeFileManager::write_cache(&test_cache_path, cache);
         assert!(result.is_ok());
 
-        let result = MergeFileManager::retrieve_from_cache(&test_cache_filename, '\t', 0);
+        let result = MergeFileManager::retrieve_from_cache(&test_cache_path, '\t', 0);
         assert!(result.is_ok());
 
         let merge_files = result.unwrap();
