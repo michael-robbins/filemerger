@@ -27,20 +27,22 @@ It is written in the Rust programming language as an initial foray into the lang
 3. Done! Test it out by generating a cache file or performing a direct merge!
 
 ## Usage
-    Usage: ./target/debug/file-merger [-h] [-v] -- See below for all options
+    Usage: ./file-merger [-h] [-v] -- See below for all options
 
     Options:
         -h, --help          Print out this help.
-        -v, --verbose       Prints out more info (able to be applied up to 3
-                            times)
-            --delimiter tsv || csv || psv
-                            Delimiter we split the line on
-            --index 0 -> len(line) - 1
-                            Column index we will use for the merge key (0 based)
-            --glob /path/to/specific_*_files.*.gz
-                            File glob that will provide all required files
-            --cache-file /path/to/file.cache
-                            Cache file containing files we could merge and their
-                            upper and lower merge keys
-            --key-start 1   Lower bound (starting from and including) merge key
-            --key-end 10    Upper bound (up to but not including) merge key
+        -v, --verbose       Prints out more info (able to be applied up to 3 times)
+        --config-file /path/to/config.yaml
+                        Configuration file in YAML that contains most other settings
+        --delimiter '	' || ',' || '|'
+                        Raw character we split the line on
+        --index 0 -> len(line) - 1
+                        Column index we will use for the merge key (0 based)
+        --glob /path/to/specific_*_files.*.gz
+                        File glob that will provide all required files
+        --cache-file /path/to/file.cache
+                        Cache file containing files we could merge and their upper and lower merge keys
+        --key-start 1   Lower bound (starting from and including) merge key
+        --key-end 10    Upper bound (up to but not including) merge key
+        --key-type 'Integer' || 'String'
+                        The data type of the key used for optimization
