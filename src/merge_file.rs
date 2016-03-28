@@ -2,8 +2,9 @@
 use std::io::{Error, ErrorKind};
 use std::io::prelude::*;
 use std::io::BufReader;
-use std::io::Lines;
+use std::str::FromStr;
 use std::path::Path;
+use std::io::Lines;
 use std::fs::File;
 use std::cmp;
 use std::fmt;
@@ -27,6 +28,7 @@ pub struct MergeFile {
 
 impl MergeFile {
     /// Constructs a new `MergeFile`.
+    /// A `MergeFile` can be specialised for anything that can be converted to from an str.
     ///
     /// # Examples
     ///
@@ -66,7 +68,7 @@ impl MergeFile {
             },
         };
 
-        let merge_file = MergeFile {
+        Ok(MergeFile {
             filename: filename.to_string(),
             filesize: filesize,
             lines: BufReader::new(decompressor).lines(),
@@ -76,9 +78,7 @@ impl MergeFile {
             current_merge_key: "".to_string(),
             beginning_merge_key: "".to_string(),
             ending_merge_key: "".to_string(),
-        };
-
-        Ok(merge_file)
+        })
     }
 
     pub fn fast_forward(&mut self, merge_start: &String) -> Result<&'static str,&'static str> {
