@@ -5,10 +5,13 @@ use std::collections::HashMap;
 use std::io::prelude::*;
 use std::path::PathBuf;
 use std::fs::File;
+use std::fmt;
+use std::fs;
 use std::io;
 use glob;
 
 use merge_file::MergeFile;
+use merge_file::Mergeable;
 
 /// A MergeFile manager that maintains an internal cache and will perform the merge over all added files.
 ///
@@ -18,31 +21,32 @@ pub struct MergeFileManager;
 
 impl MergeFileManager {
     /// Creates a new MergeFile
-    fn new_merge_file(filepath: &str, delimiter: char, index: usize) -> io::Result<MergeFile> {
+    fn new_merge_file<T>(filename: &str, delimiter: char, index: usize, default_key: T) -> io::Result<MergeFile<T>>
+        where T: Mergeable, T::Err: fmt::Debug {
         // Create the merge file
-        let mut merge_file = try!(MergeFile::new(filepath, delimiter, index));
+        let mut merge_file = try!(MergeFile::new(filename, delimiter, index, default_key));
 
         // Perform the first iteration over the merge_file to populate all the required fields
-        if let Some(iter_result) = merge_file.next() {
+        if let Some(merge_key) = merge_file.next() {
             // Remember the initial merge_key of the file
-            merge_file.beginning_merge_key = iter_result.0; // iter_result = (merge_key, line)
+            merge_file.beginning_merge_key = merge_key;
             return Ok(merge_file);
         } else {
             return Err(Error::new(ErrorKind::Other, "Failed to iterate on the merge file"));
         }
     }
 
-    /// Loads a bunch of files into an internal cache that are returned from a glob. Returns the
-    /// number of files the glob loaded successfully.
+    /// For the provided glob, we load all resolved files into an internal cache, returning the cache.
     ///
     /// # Examples
     ///
     /// ```
-    /// let mut merge_manager = MergeFileManager::new();
-    /// merge_manager.load_from_glob("/data/files/*.csv", ',', 0);
+    /// # Provide a cache specialised for MergeFile<i32>
+    /// let cache = MergeFileManager::load_from_glob("/data/files/*.csv", ',', 0, 0i32);
     /// ```
-    pub fn retrieve_from_glob(glob_choice: &str, delimiter: char, index: usize) -> io::Result<HashMap<String, MergeFile>> {
-        let mut cache: HashMap<String, MergeFile> = HashMap::new();
+    pub fn retrieve_from_glob<T>(glob_choice: &str, delimiter: char, index: usize, default_key: T) -> io::Result<HashMap<String, MergeFile<T>>>
+        where T: Mergeable, T::Err: fmt::Debug {
+        let mut cache: HashMap<String, MergeFile<T>> = HashMap::new();
 
         let glob_result = glob::glob(glob_choice);
 
@@ -56,9 +60,9 @@ impl MergeFileManager {
             debug!("Attempting to load path: {}", path.display());
 
             if let Some(path) = path.to_str() {
-                if let Ok(merge_file) = MergeFileManager::new_merge_file(path, delimiter, index) {
-                    debug!("Added {} to the cache successfully!", path);
+                if let Ok(merge_file) = MergeFileManager::new_merge_file(path, delimiter, index, default_key.clone()) {
                     cache.insert(path.to_string(), merge_file);
+                    debug!("Added {} to the cache successfully!", path);
                 } else {
                     error!("We failed to load {} into the cache!", path);
                 }
@@ -80,16 +84,18 @@ impl MergeFileManager {
     /// let mut merge_manager = MergeFileManager::new();
     /// merge_manager.load_from_cache("/data/cache/file.cache", ',', 0);
     /// ```
-    pub fn retrieve_from_cache(cache_filepath: &PathBuf, delimiter: char, index: usize) -> io::Result<HashMap<String, MergeFile>> {
-        let mut cache: HashMap<String, MergeFile> = HashMap::new();
+    pub fn retrieve_from_cache<T>(filename: &PathBuf, delimiter: char, index: usize, default_key: T) -> io::Result<HashMap<String, MergeFile<T>>>
+        where T: Mergeable, T::Err: fmt::Debug {
+        let mut cache: HashMap<String, MergeFile<T>> = HashMap::new();
 
         // Attempt to read the cache file
-        let cache_file = BufReader::new(try!(File::open(cache_filepath)));
+        let cache_file = BufReader::new(try!(File::open(filename)));
         let mut cache_file_lines = cache_file.lines();
+        debug!("Opened cache file: {}", filename.display());
 
         // Iterate over cache file reading in and creating new CacheFileEntry instances
         while let Some(Ok(cache_line)) = cache_file_lines.next() {
-            debug!("CacheFile line: '{}'", cache_line);
+            debug!("Cache file line: '{}'", cache_line);
 
             let cache_line: Vec<&str> = cache_line.split(",").collect();
 
@@ -99,13 +105,20 @@ impl MergeFileManager {
             }
 
             //let (filename, beginning_merge_key, ending_merge_key, filesize) =
-            let (filename, _, _, _) =
+            let (filename, _, _, filesize) =
                 (cache_line[0], cache_line[1], cache_line[2], cache_line[3]);
 
-            // TODO: Check if filename is already in the cache, if so, check its filesize and skip if the same
+            if cache.get(filename).is_some() {
+                let metadata = try!(fs::metadata(filename));
+
+                if metadata.len() == filesize.parse::<u64>().unwrap() {
+                    // File is already in cache and filesize is the same
+                    continue;
+                }
+            }
 
             // Add it into the cache if it isn't
-            if let Ok(merge_file) = MergeFileManager::new_merge_file(&filename.to_string(), delimiter, index) {
+            if let Ok(merge_file) = MergeFileManager::new_merge_file(&filename.to_string(), delimiter, index, default_key.clone()) {
                 cache.insert(filename.to_string(), merge_file);
                 debug!("Added {} to the cache successfully!", filename);
             } else {
@@ -116,13 +129,14 @@ impl MergeFileManager {
         Ok(cache)
     }
 
-    /// Consumes a HashMap<K,V> turning it into an owned Vec<V>
-    pub fn cache_to_vec(mut hashmap: HashMap<String, MergeFile>) -> Vec<MergeFile> {
+    /// Consumes a HashMap<K,V> turning it into a Vec<V>
+    pub fn cache_to_vec<T>(mut hashmap: HashMap<String, MergeFile<T>>) -> Vec<MergeFile<T>> {
         hashmap.drain().map(|(_, v)| v).collect()
     }
 
     /// Consumes a HashMap<K, MergeFile> and returns one with only existing MergeFile(s)
-    pub fn fast_forward_cache(mut cache: HashMap<String, MergeFile>, merge_start: Option<String>) -> HashMap<String, MergeFile> {
+    pub fn fast_forward_cache<T>(mut cache: HashMap<String, MergeFile<T>>, merge_start: Option<String>) -> HashMap<String, MergeFile<T>>
+        where T: Mergeable, T::Err: fmt::Debug {
         if merge_start.is_some() {
             let mut files_to_delete: Vec<String> = vec!();
             let merge_start = merge_start.unwrap();
@@ -154,24 +168,26 @@ impl MergeFileManager {
     /// merge_manager.load_from_glob("/data/*.tsv", '\t', 0);
     /// merge_manager.begin_merge("zzz");
     /// ```
-    pub fn begin_merge(mut heap: BinaryHeap<MergeFile>, merge_end: Option<String>, print_merge_output: bool) -> Vec<MergeFile>{
+    pub fn begin_merge<T>(cache: HashMap<String, MergeFile<T>>, merge_end: Option<String>, print_merge_output: bool) -> Vec<MergeFile<T>>
+        where T: Mergeable, T::Err: fmt::Debug {
+        let mut heap = BinaryHeap::from(MergeFileManager::cache_to_vec(cache));
         let mut discarded = Vec::new();
 
         if merge_end.is_some() {
-            let merge_end = merge_end.unwrap();
+            let merge_end = merge_end.unwrap().parse::<T>().unwrap();
             info!("Beginning merge -> {}", merge_end);
 
             while let Some(mut next_file) = heap.pop() {
                 // Report on the line or EOF the file and add it to the discarded pile
                 if let Some(result) = next_file.next() {
                     // Check if the line has exceeded the merge_end key
-                    if result.0 > merge_end {
-                        info!("MergeFile<{}> has hit end bound ({}>{}), discarding from cache", next_file.filename, result.0, merge_end);
+                    if result > merge_end {
+                        info!("MergeFile<{}> has hit end bound ({}>{}), discarding from cache", next_file.filename, result, merge_end);
                         discarded.push(next_file);
                     } else {
                         // Print the line (if required) then push the MergeFile back into the heap
                         if print_merge_output {
-                            println!("{}", result.1);
+                            println!("{}", next_file.line);
                         }
 
                         heap.push(next_file);
@@ -186,9 +202,9 @@ impl MergeFileManager {
 
             while let Some(mut next_file) = heap.pop() {
                 // Report on the line or EOF the file and add it to the discarded pile
-                if let Some(result) = next_file.next() {
+                if let Some(_) = next_file.next() {
                     if print_merge_output {
-                        println!("{}", result.1);
+                        println!("{}", next_file.line);
                     }
 
                     heap.push(next_file);
@@ -214,7 +230,10 @@ impl MergeFileManager {
     /// let cache = merge_manager.load_from_glob("/data/*.tsv", '\t', 0);
     /// merge_manager.write_cache("/data/caches/data.cache".to_string(), cache);
     /// ```
-    pub fn write_cache(cache_filename: &PathBuf, cache: HashMap<String, MergeFile>) -> io::Result<String> {
+    pub fn write_cache<T>(cache_filename: &PathBuf, cache: HashMap<String, MergeFile<T>>) -> io::Result<String>
+        where
+        T::Err: fmt::Debug,
+        T: Mergeable {
         // TODO: Unit test: Given a filename, test the provided cache writing
         // TODO: Unit test: Given an invalid filename, test the writing ability
         info!("Writing out cache to disk => {}!", cache_filename.display());
@@ -242,7 +261,6 @@ impl MergeFileManager {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BinaryHeap;
     use std::io::prelude::*;
     use std::io::BufWriter;
     use std::path::PathBuf;
@@ -282,7 +300,7 @@ mod tests {
         create_file(test_filename_2, test_contents_2);
 
         // Add the first file and sanity check
-        let result = MergeFileManager::new_merge_file(&test_filename_1, '\t', 0);
+        let result = MergeFileManager::new_merge_file(&test_filename_1, '\t', 0, "0".to_string());
         assert!(result.is_ok());
 
         let mergefile = result.unwrap();
@@ -290,7 +308,7 @@ mod tests {
         assert_eq!(mergefile.current_merge_key, "123");
 
         // Add the second file and sanity check
-        let result = MergeFileManager::new_merge_file(&test_filename_2, ',', 0);
+        let result = MergeFileManager::new_merge_file(&test_filename_2, ',', 0, "0".to_string());
         assert!(result.is_ok());
 
         let mergefile = result.unwrap();
@@ -325,7 +343,7 @@ mod tests {
         create_file(test_filename_2, test_contents_2);
 
         // Load a glob with a single file into the cache
-        let result = MergeFileManager::retrieve_from_glob("/tmp/test_retrieve_from_glob.file1.tsv", '\t', 0);
+        let result = MergeFileManager::retrieve_from_glob("/tmp/test_retrieve_from_glob.file1.tsv", '\t', 0, "0".to_string());
         assert!(result.is_ok());
 
         let merge_files = result.unwrap();
@@ -333,7 +351,7 @@ mod tests {
         assert!(merge_files.values().any(|x|x.filename == test_filename_1));
 
         // Load a glob with a single file into the cache
-        let result = MergeFileManager::retrieve_from_glob("/tmp/test_retrieve_from_glob.file?.tsv", '\t', 0);
+        let result = MergeFileManager::retrieve_from_glob("/tmp/test_retrieve_from_glob.file?.tsv", '\t', 0, "0".to_string());
         assert!(result.is_ok());
 
         let merge_files = result.unwrap();
@@ -374,7 +392,7 @@ mod tests {
         create_file(&cache_filename, cache_contents);
 
         let cache_path = PathBuf::from(&cache_filename);
-        let result = MergeFileManager::retrieve_from_cache(&cache_path, '\t', 0);
+        let result = MergeFileManager::retrieve_from_cache(&cache_path, '\t', 0, "0".to_string());
         assert!(result.is_ok());
 
         let merge_files = result.unwrap();
@@ -410,7 +428,7 @@ mod tests {
 
         create_file(test_filename_2, test_contents_2);
 
-        let cache = MergeFileManager::retrieve_from_glob("/tmp/test_cache_to_vec.file?.tsv", '\t', 0).unwrap();
+        let cache = MergeFileManager::retrieve_from_glob("/tmp/test_cache_to_vec.file?.tsv", '\t', 0, "0".to_string()).unwrap();
 
         // Create the vec and ensure it only contains the two elements from above
         let test_vec = MergeFileManager::cache_to_vec(cache);
@@ -447,7 +465,7 @@ mod tests {
         create_file(test_filename_2, test_contents_2);
 
         // Load a glob with a single file into the cache
-        let cache = MergeFileManager::retrieve_from_glob("/tmp/test_begin_merge.file?.tsv", '\t', 0).unwrap();
+        let cache = MergeFileManager::retrieve_from_glob("/tmp/test_begin_merge.file?.tsv", '\t', 0, "0".to_string()).unwrap();
         assert_eq!(cache.len(), 2);
 
         let cache_len = cache.len();
@@ -456,8 +474,7 @@ mod tests {
         let merge_end = "126".to_string();
 
         let cache = MergeFileManager::fast_forward_cache(cache, Some(merge_start));
-        let heap = BinaryHeap::from(MergeFileManager::cache_to_vec(cache));
-        let discarded = MergeFileManager::begin_merge(heap, Some(merge_end.clone()), false);
+        let discarded = MergeFileManager::begin_merge(cache, Some(merge_end.clone()), false);
 
         // Both original files should exist and have correct final merge keys
         assert_eq!(discarded.len(), cache_len);
@@ -491,7 +508,7 @@ mod tests {
         create_file(test_filename_2, test_contents_2);
 
         // Load a glob with a single file into the cache
-        let cache = MergeFileManager::retrieve_from_glob("/tmp/test_write_cache.file?.tsv", '\t', 0).unwrap();
+        let cache = MergeFileManager::retrieve_from_glob("/tmp/test_write_cache.file?.tsv", '\t', 0, "0".to_string()).unwrap();
         assert_eq!(cache.len(), 2);
 
         let test_cache_filename = "/tmp/test_cache.cache";
@@ -499,7 +516,7 @@ mod tests {
         let result = MergeFileManager::write_cache(&test_cache_path, cache);
         assert!(result.is_ok());
 
-        let result = MergeFileManager::retrieve_from_cache(&test_cache_path, '\t', 0);
+        let result = MergeFileManager::retrieve_from_cache(&test_cache_path, '\t', 0, "0".to_string());
         assert!(result.is_ok());
 
         let merge_files = result.unwrap();

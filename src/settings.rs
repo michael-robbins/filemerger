@@ -7,8 +7,9 @@ use std::env;
 
 #[derive(Clone)]
 pub enum KeyType {
+    Unsigned32Integer,
+    Signed32Integer,
     String,
-    Integer,
 }
 
 pub struct MergeSettings {
@@ -172,6 +173,7 @@ pub fn load(args: Vec<String>) -> Option<MergeSettings> {
     }
 
     // Verify the --key-type parameter
+    // We default to KeyType::String as it's the slowest/most supported
     let mut key_type = KeyType::String;
     if matches.opt_present("key-type") {
         let result = matches.opt_str("key-type");
@@ -180,16 +182,16 @@ pub fn load(args: Vec<String>) -> Option<MergeSettings> {
             let result = result.unwrap();
 
             match result.trim() {
-                "Integer" => key_type = KeyType::Integer,
+                "Unsigned32Integer" => key_type = KeyType::Unsigned32Integer,
+                "Signed32Integer" => key_type = KeyType::Signed32Integer,
                 "String"  => key_type = KeyType::String,
-                _         => {
-                    warn!("--key-type unsupported, assuming a String type (slowest)");
-                    key_type = KeyType::String;
-                }
+                _         => warn!("--key-type unsupported, assuming a String type (slowest)"),
             }
+        } else {
+            error!("Unable to parse the --key-type parameter? Defaulting to String type (slowest)");
         }
     } else {
-        info!("--key-type was not supplied, assuming a String type (slowest)");
+        info!("--key-type was not supplied, defaulting to String type (slowest)");
     }
 
     Some(MergeSettings {

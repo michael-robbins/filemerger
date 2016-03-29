@@ -14,19 +14,25 @@ use std::io;
 use flate2::read::GzDecoder;
 use bzip2::read::BzDecoder;
 
-pub struct MergeFile {
+pub trait Mergeable: Clone + FromStr + fmt::Display + fmt::Debug + PartialOrd + Ord {}
+
+impl Mergeable for u32 {}
+impl Mergeable for i32 {}
+impl Mergeable for String {}
+
+pub struct MergeFile<T> {
     pub filename: String,
     pub filesize: u64,
     lines: Lines<BufReader<Box<Read>>>,
     delimiter: char,
     index: usize,
-    line: String,
-    pub current_merge_key: String,
-    pub beginning_merge_key: String,
-    pub ending_merge_key: String,
+    pub line: String,
+    pub current_merge_key: T,
+    pub beginning_merge_key: T,
+    pub ending_merge_key: T,
 }
 
-impl MergeFile {
+impl<T: Mergeable> MergeFile<T> where T::Err: fmt::Debug {
     /// Constructs a new `MergeFile`.
     /// A `MergeFile` can be specialised for anything that can be converted to from an str.
     ///
@@ -35,7 +41,7 @@ impl MergeFile {
     /// ```
     /// let mut merge_file = MergeFile::new("/path/to/data.psv", '|', 1);
     /// ```
-    pub fn new(filename: &str, delimiter: char, index: usize) -> io::Result<MergeFile> {
+    pub fn new(filename: &str, delimiter: char, index: usize, default_key: T) -> io::Result<MergeFile<T>> {
         // Unit test: Create MergeFile with valid test data
         // Unit test: Create MergeFile with invalid test data
         let filepath = Path::new(filename);
@@ -75,15 +81,15 @@ impl MergeFile {
             delimiter: delimiter,
             index: index,
             line: "".to_string(),
-            current_merge_key: "".to_string(),
-            beginning_merge_key: "".to_string(),
-            ending_merge_key: "".to_string(),
+            current_merge_key: default_key.clone(),
+            beginning_merge_key: default_key.clone(),
+            ending_merge_key: default_key.clone(),
         })
     }
 
     pub fn fast_forward(&mut self, merge_start: &String) -> Result<&'static str,&'static str> {
         debug!("MergeFile<{}>: Fastforwarding to {}", self.filename, merge_start);
-        while self.current_merge_key < *merge_start {
+        while self.current_merge_key < merge_start.parse::<T>().unwrap() {
             if self.next().is_none() {
                 debug!("MergeFile<{}>: Fast forward hit EOF or failed to read, bailing", self.filename);
                 return Err("Hit EOF or failed to read");
@@ -100,20 +106,23 @@ impl MergeFile {
     }
 }
 
-impl Iterator for MergeFile {
-    type Item = (String, String);
+impl<T: Mergeable> Iterator for MergeFile<T> where T::Err: fmt::Debug {
+    type Item = T;
 
     // This is just a thin wrapper around Lines
     // It saves the line, extracts the merge_key and passes them upstream
-    fn next(&mut self) -> Option<(String, String)> {
+    fn next(&mut self) -> Option<T> {
         match self.lines.next() {
             Some(Ok(line)) => {
                 // Clone all required parts and return the new merge key and the line
                 self.line = line.clone();
-                self.current_merge_key = line.split(self.delimiter).nth(self.index).unwrap().to_string();
-                trace!("file='{}' current_merge_key='{}'", self.filename, self.current_merge_key);
 
-                Some((self.current_merge_key.clone(), line))
+                // TODO: Optimize for self.index == 0
+                // Where we take a slice of characters 0 -> line.find(delimiter)
+                let new_merge_key = line.split(self.delimiter).nth(self.index).unwrap();
+                self.current_merge_key = new_merge_key.parse::<T>().unwrap();
+
+                Some(self.current_merge_key.clone())
             },
             Some(Err(_)) => {
                 // Problems reading the file
@@ -130,19 +139,19 @@ impl Iterator for MergeFile {
     }
 }
 
-impl fmt::Debug for MergeFile {
+impl<T: fmt::Debug> fmt::Debug for MergeFile<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.filename)
     }
 }
 
-impl fmt::Display for MergeFile {
+impl<T: fmt::Display> fmt::Display for MergeFile<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.filename)
     }
 }
 
-impl cmp::Ord for MergeFile {
+impl<T: cmp::Ord> cmp::Ord for MergeFile<T> {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         if self.current_merge_key < other.current_merge_key {
             return cmp::Ordering::Less;
@@ -153,7 +162,7 @@ impl cmp::Ord for MergeFile {
     }
 }
 
-impl cmp::PartialOrd for MergeFile {
+impl<T: cmp::PartialOrd> cmp::PartialOrd for MergeFile<T> {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         if self.current_merge_key < other.current_merge_key {
             return Some(cmp::Ordering::Less);
@@ -164,9 +173,9 @@ impl cmp::PartialOrd for MergeFile {
     }
 }
 
-impl cmp::Eq for MergeFile {}
+impl<T: cmp::Eq> cmp::Eq for MergeFile<T> {}
 
-impl cmp::PartialEq for MergeFile {
+impl<T: cmp::PartialEq> cmp::PartialEq for MergeFile<T> {
     fn eq(&self, other: &Self) -> bool {
         if self.filename == other.filename && self.filesize == other.filesize {
             return true;
@@ -206,7 +215,7 @@ mod tests {
         create_file(test_filename_1, test_contents_1);
 
         // Add the first file and sanity check
-        let result = MergeFile::new(&test_filename_1, '\t', 0);
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string());
         assert!(result.is_ok());
 
         let mergefile = result.unwrap();
@@ -242,7 +251,7 @@ mod tests {
         create_file(test_filename_1, test_contents_1);
 
         // Add the first file and sanity check
-        let result = MergeFile::new(&test_filename_1, '\t', 0);
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string());
         assert!(result.is_ok());
 
         let mut mergefile = result.unwrap();
@@ -285,7 +294,7 @@ mod tests {
         create_file(test_filename_1, test_contents_1);
 
         // Add the first file and sanity check
-        let result = MergeFile::new(&test_filename_1, '\t', 0);
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string());
         assert!(result.is_ok());
 
         let mut mergefile = result.unwrap();
@@ -315,7 +324,7 @@ mod tests {
         create_file(test_filename_1, test_contents_1);
 
         // Add the first file and sanity check
-        let result = MergeFile::new(&test_filename_1, '\t', 0);
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string());
         assert!(result.is_ok());
 
         let mut mergefile = result.unwrap();
@@ -326,7 +335,7 @@ mod tests {
         // Test line 1
         let result = mergefile.next();
         assert!(result.is_some());
-        assert_eq!(result, Some(("123".to_string(), "123\tbbb\t999".to_string())));
+        assert_eq!(result, Some("123".to_string()));
 
         assert_eq!(mergefile.line, "123\tbbb\t999");
         assert_eq!(mergefile.current_merge_key, "123");
@@ -334,7 +343,7 @@ mod tests {
         // Test line 2
         let result = mergefile.next();
         assert!(result.is_some());
-        assert_eq!(result, Some(("124".to_string(), "124\tbbb\t999".to_string())));
+        assert_eq!(result, Some("124".to_string()));
 
         assert_eq!(mergefile.line, "124\tbbb\t999");
         assert_eq!(mergefile.current_merge_key, "124");
@@ -342,7 +351,7 @@ mod tests {
         // Test line 3
         let result = mergefile.next();
         assert!(result.is_some());
-        assert_eq!(result, Some(("125".to_string(), "125\tbbb\t999".to_string())));
+        assert_eq!(result, Some("125".to_string()));
 
         assert_eq!(mergefile.line, "125\tbbb\t999");
         assert_eq!(mergefile.current_merge_key, "125");
@@ -371,7 +380,7 @@ mod tests {
         create_file(test_filename_1, test_contents_1);
 
         // Add the first file and sanity check
-        let result = MergeFile::new(&test_filename_1, '\t', 0);
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string());
         assert!(result.is_ok());
 
         let mergefile = result.unwrap();
@@ -407,7 +416,7 @@ mod tests {
         create_file(test_filename_2, test_contents_2);
 
         // Create the first file and initialise it
-        let result = MergeFile::new(&test_filename_1, '\t', 0);
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string());
         assert!(result.is_ok());
 
         let mut mergefile_1 = result.unwrap();
@@ -415,7 +424,7 @@ mod tests {
         assert!(result.is_ok());
 
         // Create the second file and initialise it
-        let result = MergeFile::new(&test_filename_1, '\t', 0);
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string());
         assert!(result.is_ok());
 
         let mut mergefile_2 = result.unwrap();
