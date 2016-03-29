@@ -56,7 +56,7 @@ pub fn load(args: Vec<String>) -> Option<MergeSettings> {
     // Merge options (only required if merging)
     opts.optopt("", "key-start", "Lower bound (starting from and including) merge key", "1");
     opts.optopt("", "key-end", "Upper bound (up to but not including) merge key", "10");
-    opts.optopt("", "key-type", "The data type of the key used for optimization", "'Integer' || 'String'");
+    opts.optopt("", "key-type", "The data type of the key used for optimization", "'Unsigned32Integer' || 'Signed32Integer' || 'String'");
 
     // Parse the user provided parameters matching them to the options specified above
     let matches = match opts.parse(args) {
