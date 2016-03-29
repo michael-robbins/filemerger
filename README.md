@@ -1,6 +1,6 @@
 # File Merger
 
-File Merger will perform a single k-way merge of all input files. This is a partial implementation of an [external merge sort](https://en.wikipedia.org/wiki/External_sorting#External_merge_sort), only performing the second half of the function. It assumes all external files it will merge are themselves already sorted based on a merge key.
+File Merger will perform a [k-way merge](https://en.wikipedia.org/wiki/Merge_algorithm#K-way_merging) of all input files. This is a partial implementation of an [external merge sort](https://en.wikipedia.org/wiki/External_sorting#External_merge_sort), only performing the second half of the function. It assumes all external files it will merge are themselves already sorted based on a merge key.
 
 It is written in the Rust programming language as an initial foray into the language.
 
