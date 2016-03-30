@@ -117,11 +117,9 @@ impl<T: Mergeable> Iterator for MergeFile<T> where T::Err: fmt::Debug {
                 // Clone all required parts and return the new merge key and the line
                 self.line = line.clone();
 
-                // TODO: Optimize for self.index == 0
-                // Where we take a slice of characters 0 -> line.find(delimiter)
-                let new_merge_key = line.split(self.delimiter).nth(self.index).unwrap();
-                self.current_merge_key = new_merge_key.parse::<T>().unwrap();
+                let new_merge_key = line.splitn(self.index + 2, self.delimiter).next().unwrap();
 
+                self.current_merge_key = new_merge_key.parse::<T>().unwrap();
                 Some(self.current_merge_key.clone())
             },
             Some(Err(_)) => {

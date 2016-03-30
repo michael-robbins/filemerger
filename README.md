@@ -13,9 +13,9 @@ It is written in the Rust programming language as an initial foray into the lang
 
 ## Bucket list of features
 * Ability to merge on multiple columns
-* Store the delimiter/merge key in the cache
 * Support more decompression types
-* Optimize for merging from the first column (no need to split the line, just slice up to the first occurrence of the delimiter)
+* Implement a CSV{Reader,Writer} on the cache file with quoted fields
+* Store the delimiter/merge key in the cache (blocked on the CSV{Reader,Writer} change above)
 
 ## Installation
 ### From source (assuming you have Rust & Cargo installed)
