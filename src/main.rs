@@ -8,11 +8,13 @@
 /// We have a large number of code paths below due to Rust's type checker!
 
 #[macro_use] extern crate log;
+extern crate rustc_serialize;
+extern crate yaml_rust;
 extern crate getopts;
 extern crate flate2;
 extern crate bzip2;
 extern crate glob;
-extern crate yaml_rust;
+extern crate csv;
 
 mod merge_file_manager;
 mod merge_file;

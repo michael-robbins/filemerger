@@ -1,14 +1,13 @@
-use std::io::{BufReader,BufWriter};
 use std::collections::BinaryHeap;
 use std::io::{Error, ErrorKind};
 use std::collections::HashMap;
 use std::io::prelude::*;
 use std::path::PathBuf;
-use std::fs::File;
 use std::fmt;
 use std::fs;
 use std::io;
 use glob;
+use csv;
 
 use merge_file::MergeFile;
 use merge_file::Mergeable;
@@ -89,40 +88,37 @@ impl MergeFileManager {
         let mut cache: HashMap<String, MergeFile<T>> = HashMap::new();
 
         // Attempt to read the cache file
-        let cache_file = BufReader::new(try!(File::open(filename)));
-        let mut cache_file_lines = cache_file.lines();
+        let mut cache_reader = csv::Reader::from_file(filename).unwrap().has_headers(false);
         debug!("Opened cache file: {}", filename.display());
 
+        #[derive(RustcDecodable,Debug)]
+        struct CacheFileLine {
+            filename: String,
+            beginning_merge_key: String,
+            ending_merge_key: String,
+            filesize: String,
+        }
+
         // Iterate over cache file reading in and creating new CacheFileEntry instances
-        while let Some(Ok(cache_line)) = cache_file_lines.next() {
-            debug!("Cache file line: '{}'", cache_line);
+        for record in cache_reader.decode() {
+            let record: CacheFileLine = record.unwrap();
+            println!("CacheFileLine Record: {:?}", record);
 
-            let cache_line: Vec<&str> = cache_line.split(",").collect();
-
-            if cache_line.len() != 4 {
-                warn!("Cache entry has {} columns, we expect only 4, skipping this line.", cache_line.len());
-                continue;
-            }
-
-            //let (filename, beginning_merge_key, ending_merge_key, filesize) =
-            let (filename, _, _, filesize) =
-                (cache_line[0], cache_line[1], cache_line[2], cache_line[3]);
-
-            if cache.get(filename).is_some() {
+            // Check if the file is already in the cache
+            if cache.get(&record.filename).is_some() {
                 let metadata = try!(fs::metadata(filename));
-
-                if metadata.len() == filesize.parse::<u64>().unwrap() {
-                    // File is already in cache and filesize is the same
+                if metadata.len() == record.filesize.parse::<u64>().unwrap() {
+                    // File is already in cache and filesize is the same, skip it
                     continue;
                 }
             }
 
             // Add it into the cache if it isn't
-            if let Ok(merge_file) = MergeFileManager::new_merge_file(&filename.to_string(), delimiter, index, default_key.clone()) {
-                cache.insert(filename.to_string(), merge_file);
-                debug!("Added {} to the cache successfully!", filename);
+            if let Ok(merge_file) = MergeFileManager::new_merge_file(&record.filename, delimiter, index, default_key.clone()) {
+                cache.insert(record.filename.clone(), merge_file);
+                debug!("Added {} to the cache successfully!", record.filename);
             } else {
-                error!("We failed to load {} into the cache!", filename);
+                error!("We failed to load {} into the cache!", record.filename);
             }
         }
 
@@ -230,16 +226,19 @@ impl MergeFileManager {
     /// let cache = merge_manager.load_from_glob("/data/*.tsv", '\t', 0);
     /// merge_manager.write_cache("/data/caches/data.cache".to_string(), cache);
     /// ```
-    pub fn write_cache<T>(cache_filename: &PathBuf, cache: HashMap<String, MergeFile<T>>) -> io::Result<String>
+    pub fn write_cache<T>(filename: &PathBuf, cache: HashMap<String, MergeFile<T>>) -> Result<String, String>
         where
         T::Err: fmt::Debug,
         T: Mergeable {
         // TODO: Unit test: Given a filename, test the provided cache writing
         // TODO: Unit test: Given an invalid filename, test the writing ability
-        info!("Writing out cache to disk => {}!", cache_filename.display());
+        info!("Writing out cache to disk => {}!", filename.display());
 
         // Open the file
-        let mut cache_file = BufWriter::new(try!(File::create(cache_filename)));
+        let mut cache_writer = csv::Writer::from_file(filename)
+                                            .unwrap()
+                                            .delimiter(b',');
+        debug!("Opened cache file: {}", filename.display());
 
         // Drain the cache into a vec, sort it, then write its contents out to disk
         let mut merge_files = MergeFileManager::cache_to_vec(cache);
@@ -248,11 +247,17 @@ impl MergeFileManager {
         for mut merge_file in merge_files {
             info!("Fast Forwarding MergeFile {} -> end", &merge_file);
             merge_file.fast_forward_to_end();
-            try!(cache_file.write(format!("{},{},{},{}\n", merge_file.filename,
-                                                           merge_file.beginning_merge_key,
-                                                           merge_file.ending_merge_key,
-                                                           merge_file.filesize).as_ref()));
+            let cache_line = [
+                merge_file.filename,
+                merge_file.beginning_merge_key.to_string(),
+                merge_file.ending_merge_key.to_string(),
+                merge_file.filesize.to_string()
+            ];
+
+            cache_writer.write(cache_line.iter()).unwrap();
         }
+
+        cache_writer.flush().unwrap();
 
         Ok("Written cache out to disk.".to_string())
     }
