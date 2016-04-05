@@ -12,10 +12,8 @@ It is written in the Rust programming language as an initial foray into the lang
 * Supports different specializations of the merge key, allowing faster merges
 
 ## Bucket list of features
-* Ability to merge on multiple columns
+* Ability to merge on multiple columns (non-trivial)
 * Support more decompression types
-* Implement a CSV{Reader,Writer} on the cache file with quoted fields
-* Store the delimiter/merge key in the cache (blocked on the CSV{Reader,Writer} change above)
 
 ## Installation
 ### From source (assuming you have Rust & Cargo installed)

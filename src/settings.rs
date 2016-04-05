@@ -5,7 +5,7 @@ use getopts::Options;
 use std::process;
 use std::env;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum KeyType {
     Unsigned32Integer,
     Signed32Integer,
@@ -14,7 +14,7 @@ pub enum KeyType {
 
 pub struct MergeSettings {
     pub delimiter: char,
-    pub index: usize,
+    pub key_index: usize,
     pub key_start: Option<String>,
     pub key_end: Option<String>,
     pub key_type: KeyType,
@@ -43,17 +43,15 @@ pub fn load(args: Vec<String>) -> Option<MergeSettings> {
     opts.optflagmulti("v", "verbose", "Prints out more info (able to be applied up to 3 times)");
     opts.optopt("", "config-file", "Configuration file in YAML that contains most other settings", "/path/to/config.yaml");
 
-    // Merge key options (required for both emitting and caching)
-    opts.optopt("", "delimiter", "Raw character we split the line on", "'\t' || ',' || '|'");
-    opts.optopt("", "index", "Column index we will use for the merge key (0 based)", "0 -> len(line) - 1");
-
     // File selection options
     // * If either the glob or cache-file options are provided, we will perform a merge
     // * If both the glob and cache-file options are provided, we will cache the glob results
     opts.optmulti("", "glob", "File glob that will provide all required files", "/path/to/specific_*_files.*.gz");
     opts.optopt("", "cache-file", "Cache file containing files we could merge and their upper and lower merge keys", "/path/to/file.cache");
+    opts.optopt("", "delimiter", "Raw character we split the line on", "'\t' || ',' || '|'");
 
     // Merge options (only required if merging)
+    opts.optopt("", "key-index", "Column index we will use for the merge key (0 based)", "0 -> len(line) - 1");
     opts.optopt("", "key-start", "Lower bound (starting from and including) merge key", "1");
     opts.optopt("", "key-end", "Upper bound (up to but not including) merge key", "10");
     opts.optopt("", "key-type", "The data type of the key used for optimization", "'Unsigned32Integer' || 'Signed32Integer' || 'String'");
@@ -96,12 +94,12 @@ pub fn load(args: Vec<String>) -> Option<MergeSettings> {
     debug!("We got a delimiter of: {}", delimiter_char);
 
     // Verify the --index parameter
-    if ! matches.opt_present("index") {
-        error_usage_and_bail("We need a --index parameter", &program, &opts);
+    if ! matches.opt_present("key_index") {
+        error_usage_and_bail("We need a --key-index parameter", &program, &opts);
     }
 
-    let index = matches.opt_str("index").unwrap().parse::<usize>().unwrap();
-    debug!("We got an --index of {}", index);
+    let key_index = matches.opt_str("key_index").unwrap().parse::<usize>().unwrap();
+    debug!("We got an --key-index of {}", key_index);
 
     // Verify the --glob parameter(s)
     let mut glob_present = false;
@@ -198,7 +196,7 @@ pub fn load(args: Vec<String>) -> Option<MergeSettings> {
         cache_path: cache_path,
         glob_choices: glob_choices,
         delimiter: delimiter_char,
-        index: index,
+        key_index: key_index,
         key_start: key_start,
         key_end: key_end,
         key_type: key_type,

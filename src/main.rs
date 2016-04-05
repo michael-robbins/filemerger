@@ -51,7 +51,7 @@ fn main() {
         if cache_path.exists() {
             match settings.key_type {
                 KeyType::Unsigned32Integer => {
-                    match MergeFileManager::retrieve_from_cache(&cache_path, settings.delimiter, settings.index, 0u32) {
+                    match MergeFileManager::retrieve_from_cache(&cache_path, 0u32, settings.key_type.clone()) {
                         Ok(merge_files) => {
                             mergefile_cache_u32.extend(merge_files);
                             debug!("Added cachefile {} to the cache", cache_path.display())
@@ -63,7 +63,7 @@ fn main() {
                     }
                 },
                 KeyType::Signed32Integer => {
-                    match MergeFileManager::retrieve_from_cache(&cache_path, settings.delimiter, settings.index, 0i32) {
+                    match MergeFileManager::retrieve_from_cache(&cache_path, 0i32, settings.key_type.clone()) {
                         Ok(merge_files) => {
                             mergefile_cache_i32.extend(merge_files);
                             debug!("Added cachefile {} to the cache", cache_path.display())
@@ -75,7 +75,7 @@ fn main() {
                     }
                 },
                 KeyType::String => {
-                    match MergeFileManager::retrieve_from_cache(&cache_path, settings.delimiter, settings.index, "0".to_string()) {
+                    match MergeFileManager::retrieve_from_cache(&cache_path, "0".to_string(), settings.key_type.clone()) {
                         Ok(merge_files) => {
                             mergefile_cache_string.extend(merge_files);
                             debug!("Added cachefile {} to the cache", cache_path.display())
@@ -95,7 +95,7 @@ fn main() {
         for glob_choice in settings.glob_choices {
             match settings.key_type {
                 KeyType::Unsigned32Integer => {
-                    match MergeFileManager::retrieve_from_glob(&glob_choice, settings.delimiter, settings.index, 0u32) {
+                    match MergeFileManager::retrieve_from_glob(&glob_choice, settings.delimiter, settings.key_index, 0u32, settings.key_type.clone()) {
                         Ok(merge_files) => {
                             mergefile_cache_u32.extend(merge_files);
                             debug!("Added glob {} to the cache", glob_choice)
@@ -107,7 +107,7 @@ fn main() {
                     }
                 },
                 KeyType::Signed32Integer => {
-                    match MergeFileManager::retrieve_from_glob(&glob_choice, settings.delimiter, settings.index, 0i32) {
+                    match MergeFileManager::retrieve_from_glob(&glob_choice, settings.delimiter, settings.key_index, 0i32, settings.key_type.clone()) {
                         Ok(merge_files) => {
                             mergefile_cache_i32.extend(merge_files);
                             debug!("Added glob {} to the cache", glob_choice)
@@ -119,7 +119,7 @@ fn main() {
                     }
                 },
                 KeyType::String => {
-                    match MergeFileManager::retrieve_from_glob(&glob_choice, settings.delimiter, settings.index, "0".to_string()) {
+                    match MergeFileManager::retrieve_from_glob(&glob_choice, settings.delimiter, settings.key_index, "0".to_string(), settings.key_type.clone()) {
                         Ok(merge_files) => {
                             mergefile_cache_string.extend(merge_files);
                             debug!("Added glob {} to the cache", glob_choice)

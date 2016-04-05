@@ -14,6 +14,9 @@ use std::io;
 use flate2::read::GzDecoder;
 use bzip2::read::BzDecoder;
 
+// Other project dependencies
+use settings::KeyType;
+
 pub trait Mergeable: Clone + FromStr + fmt::Display + fmt::Debug + PartialOrd + Ord {}
 
 impl Mergeable for u32 {}
@@ -24,12 +27,13 @@ pub struct MergeFile<T> {
     pub filename: String,
     pub filesize: u64,
     lines: Lines<BufReader<Box<Read>>>,
-    delimiter: char,
-    index: usize,
     pub line: String,
+    pub delimiter: char,
+    pub key_index: usize,
     pub current_merge_key: T,
     pub beginning_merge_key: T,
     pub ending_merge_key: T,
+    pub key_type: KeyType,
 }
 
 impl<T: Mergeable> MergeFile<T> where T::Err: fmt::Debug {
@@ -41,7 +45,7 @@ impl<T: Mergeable> MergeFile<T> where T::Err: fmt::Debug {
     /// ```
     /// let mut merge_file = MergeFile::new("/path/to/data.psv", '|', 1);
     /// ```
-    pub fn new(filename: &str, delimiter: char, index: usize, default_key: T) -> io::Result<MergeFile<T>> {
+    pub fn new(filename: &str, delimiter: char, key_index: usize, default_key: T, key_type: KeyType) -> io::Result<MergeFile<T>> {
         // Unit test: Create MergeFile with valid test data
         // Unit test: Create MergeFile with invalid test data
         let filepath = Path::new(filename);
@@ -79,11 +83,12 @@ impl<T: Mergeable> MergeFile<T> where T::Err: fmt::Debug {
             filesize: filesize,
             lines: BufReader::new(decompressor).lines(),
             delimiter: delimiter,
-            index: index,
+            key_index: key_index,
             line: "".to_string(),
             current_merge_key: default_key.clone(),
             beginning_merge_key: default_key.clone(),
             ending_merge_key: default_key.clone(),
+            key_type: key_type,
         })
     }
 
@@ -117,7 +122,7 @@ impl<T: Mergeable> Iterator for MergeFile<T> where T::Err: fmt::Debug {
                 // Clone all required parts and return the new merge key and the line
                 self.line = line.clone();
 
-                let new_merge_key = line.splitn(self.index + 2, self.delimiter).next().unwrap();
+                let new_merge_key = line.splitn(self.key_index + 2, self.delimiter).next().unwrap();
 
                 self.current_merge_key = new_merge_key.parse::<T>().unwrap();
                 Some(self.current_merge_key.clone())
@@ -191,6 +196,7 @@ mod tests {
     use std::fs;
 
     use super::MergeFile;
+    use settings::KeyType;
 
     fn create_file(filename: &str, contents: String) {
         let mut temp_file = BufWriter::new(File::create(Path::new(filename)).unwrap());
@@ -213,7 +219,7 @@ mod tests {
         create_file(test_filename_1, test_contents_1);
 
         // Add the first file and sanity check
-        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string());
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string(), KeyType::String);
         assert!(result.is_ok());
 
         let mergefile = result.unwrap();
@@ -224,7 +230,7 @@ mod tests {
         assert_eq!(mergefile.filesize, test_filesize_1);
 
         assert_eq!(mergefile.delimiter, '\t');
-        assert_eq!(mergefile.index, 0);
+        assert_eq!(mergefile.key_index, 0);
 
         assert_eq!(mergefile.line, "");
         assert_eq!(mergefile.ending_merge_key, "");
@@ -249,7 +255,7 @@ mod tests {
         create_file(test_filename_1, test_contents_1);
 
         // Add the first file and sanity check
-        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string());
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string(), KeyType::String);
         assert!(result.is_ok());
 
         let mut mergefile = result.unwrap();
@@ -292,7 +298,7 @@ mod tests {
         create_file(test_filename_1, test_contents_1);
 
         // Add the first file and sanity check
-        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string());
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string(), KeyType::String);
         assert!(result.is_ok());
 
         let mut mergefile = result.unwrap();
@@ -322,7 +328,7 @@ mod tests {
         create_file(test_filename_1, test_contents_1);
 
         // Add the first file and sanity check
-        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string());
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string(), KeyType::String);
         assert!(result.is_ok());
 
         let mut mergefile = result.unwrap();
@@ -378,7 +384,7 @@ mod tests {
         create_file(test_filename_1, test_contents_1);
 
         // Add the first file and sanity check
-        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string());
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string(), KeyType::String);
         assert!(result.is_ok());
 
         let mergefile = result.unwrap();
@@ -414,7 +420,7 @@ mod tests {
         create_file(test_filename_2, test_contents_2);
 
         // Create the first file and initialise it
-        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string());
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string(), KeyType::String);
         assert!(result.is_ok());
 
         let mut mergefile_1 = result.unwrap();
@@ -422,7 +428,7 @@ mod tests {
         assert!(result.is_ok());
 
         // Create the second file and initialise it
-        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string());
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string(), KeyType::String);
         assert!(result.is_ok());
 
         let mut mergefile_2 = result.unwrap();
