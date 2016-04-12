@@ -11,10 +11,6 @@ It is written in the Rust programming language as an initial foray into the lang
 * Low memory overhead as we only store the 'current' line of each merge file in memory
 * Supports different specializations of the merge key, allowing faster merges
 
-## Bucket list of features
-* Ability to merge on multiple columns (non-trivial)
-* Support more decompression types
-
 ## Installation
 ### From source (assuming you have Rust & Cargo installed)
 1. Clone the repository: ```git clone https://github.com/michael-robbins/filemerger.git```

@@ -27,9 +27,9 @@ impl MergeFileManager {
         let mut merge_file = try!(MergeFile::new(filename, delimiter, index, default_key.clone(), key_type.clone()));
 
         // Perform the first iteration over the merge_file to populate all the required fields
-        if let Some(merge_key) = merge_file.next() {
+        if let Some(current_merge_key) = merge_file.next() {
             // Remember the initial merge_key of the file
-            merge_file.beginning_merge_key = merge_key;
+            merge_file.beginning_merge_key = current_merge_key;
             return Ok(merge_file);
         } else {
             return Err(Error::new(ErrorKind::Other, "Failed to iterate on the merge file"));
