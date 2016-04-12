@@ -20,22 +20,6 @@ use settings::KeyType;
 pub struct MergeFileManager;
 
 impl MergeFileManager {
-    /// Creates a new MergeFile
-    fn new_merge_file<T>(filename: &str, delimiter: char, index: usize, default_key: T, key_type: KeyType) -> io::Result<MergeFile<T>>
-        where T: Mergeable, T::Err: fmt::Debug {
-        // Create the merge file
-        let mut merge_file = try!(MergeFile::new(filename, delimiter, index, default_key.clone(), key_type.clone()));
-
-        // Perform the first iteration over the merge_file to populate all the required fields
-        if let Some(current_merge_key) = merge_file.next() {
-            // Remember the initial merge_key of the file
-            merge_file.beginning_merge_key = current_merge_key;
-            return Ok(merge_file);
-        } else {
-            return Err(Error::new(ErrorKind::Other, "Failed to iterate on the merge file"));
-        }
-    }
-
     /// For the provided glob, we load all resolved files into an internal cache, returning the cache.
     ///
     /// # Examples
@@ -60,7 +44,7 @@ impl MergeFileManager {
             debug!("Attempting to load path: {}", path.display());
 
             if let Some(path) = path.to_str() {
-                if let Ok(merge_file) = MergeFileManager::new_merge_file(path, delimiter, index, default_key.clone(), key_type.clone()) {
+                if let Ok(merge_file) = MergeFile::new(path, delimiter, index, default_key.clone(), key_type.clone()) {
                     cache.insert(path.to_string(), merge_file);
                     debug!("Added {} to the cache successfully!", path);
                 } else {
@@ -117,11 +101,11 @@ impl MergeFileManager {
             }
 
             // Add it into the cache if it isn't
-            if let Ok(merge_file) = MergeFileManager::new_merge_file(&record.filename,
-                                                                     record.delimiter.chars().next().unwrap(),
-                                                                     record.key_index.parse::<usize>().unwrap(),
-                                                                     default_key.clone(),
-                                                                     key_type.clone()) {
+            if let Ok(merge_file) = MergeFile::new(&record.filename,
+                                                   record.delimiter.chars().next().unwrap(),
+                                                   record.key_index.parse::<usize>().unwrap(),
+                                                   default_key.clone(),
+                                                   key_type.clone()) {
                 cache.insert(record.filename.clone(), merge_file);
                 debug!("Added {} to the cache successfully!", record.filename);
             } else {

@@ -78,7 +78,7 @@ impl<T: Mergeable> MergeFile<T> where T::Err: fmt::Debug {
             },
         };
 
-        Ok(MergeFile {
+        let mut merge_file = MergeFile {
             filename: filename.to_string(),
             filesize: filesize,
             lines: BufReader::new(decompressor).lines(),
@@ -89,7 +89,14 @@ impl<T: Mergeable> MergeFile<T> where T::Err: fmt::Debug {
             beginning_merge_key: default_key.clone(),
             ending_merge_key: default_key.clone(),
             key_type: key_type,
-        })
+        };
+
+        if let Some(merge_key) = merge_file.next() {
+            merge_file.beginning_merge_key = merge_key;
+            Ok(merge_file)
+        } else {
+            Err(Error::new(ErrorKind::Other, format!("Error performing initial iteration over {:?}", filepath)))
+        }
     }
 
     pub fn fast_forward(&mut self, merge_start: &String) -> Result<&'static str,&'static str> {
