@@ -28,7 +28,7 @@ use std::env;
 
 fn main() {
     // Set up argument parsing
-    let args: Vec<String> = env::args().collect();
+    let args = env::args().collect::<Vec<String>>();
 
     // Allocate an empty cache for each KeyType variant, it's hacky and there's plenty of code duplication
     // but we need to do it as Rust cannot have a single HashMap that can contiain two types of MergeFile<T>
