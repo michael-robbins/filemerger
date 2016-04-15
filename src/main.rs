@@ -136,19 +136,19 @@ fn main() {
         if cache_present {
             match settings.key_type {
                 KeyType::Unsigned32Integer => {
-                    match MergeFileManager::write_cache(&cache_path, mergefile_cache_u32) {
+                    match MergeFileManager::write_cache(&cache_path, mergefile_cache_u32, 0u32) {
                         Ok(result) => {info!("{}", result)},
                         Err(result) => {error!("{}", result)},
                     }
                 },
                 KeyType::Signed32Integer => {
-                    match MergeFileManager::write_cache(&cache_path, mergefile_cache_u32) {
+                    match MergeFileManager::write_cache(&cache_path, mergefile_cache_i32, 0i32) {
                         Ok(result) => {info!("{}", result)},
                         Err(result) => {error!("{}", result)},
                     }
                 },
                 KeyType::String => {
-                    match MergeFileManager::write_cache(&cache_path, mergefile_cache_string) {
+                    match MergeFileManager::write_cache(&cache_path, mergefile_cache_string, "0".to_string()) {
                         Ok(result) => {info!("{}", result)},
                         Err(result) => {error!("{}", result)},
                     }

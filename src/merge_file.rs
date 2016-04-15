@@ -100,8 +100,9 @@ impl<T: Mergeable> MergeFile<T> where T::Err: fmt::Debug {
     }
 
     pub fn fast_forward(&mut self, merge_start: &String) -> Result<&'static str,&'static str> {
-        debug!("MergeFile<{}>: Fastforwarding to {}", self.filename, merge_start);
-        while self.current_merge_key < merge_start.parse::<T>().unwrap() {
+        debug!("MergeFile<{}>: Fastforwarding -> {}", self.filename, merge_start);
+        let merge_start = merge_start.parse::<T>().unwrap();
+        while self.current_merge_key < merge_start {
             if self.next().is_none() {
                 debug!("MergeFile<{}>: Fast forward hit EOF or failed to read, bailing", self.filename);
                 return Err("Hit EOF or failed to read");
@@ -226,7 +227,7 @@ mod tests {
         create_file(test_filename_1, test_contents_1);
 
         // Add the first file and sanity check
-        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string(), KeyType::String);
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "0".to_string(), KeyType::String);
         assert!(result.is_ok());
 
         let mergefile = result.unwrap();
@@ -239,10 +240,10 @@ mod tests {
         assert_eq!(mergefile.delimiter, '\t');
         assert_eq!(mergefile.key_index, 0);
 
-        assert_eq!(mergefile.line, "");
-        assert_eq!(mergefile.ending_merge_key, "");
-        assert_eq!(mergefile.current_merge_key, "");
-        assert_eq!(mergefile.beginning_merge_key, "");
+        assert_eq!(mergefile.line, "123\tbbb\t999");
+        assert_eq!(mergefile.beginning_merge_key, "123");
+        assert_eq!(mergefile.current_merge_key, "123");
+        assert_eq!(mergefile.ending_merge_key, "0");
 
         let _ = fs::remove_file(test_filename_1);
     }
@@ -262,28 +263,20 @@ mod tests {
         create_file(test_filename_1, test_contents_1);
 
         // Add the first file and sanity check
-        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string(), KeyType::String);
-        assert!(result.is_ok());
-
-        let mut mergefile = result.unwrap();
-        assert_eq!(mergefile.filename, test_filename_1);
+        let mut mergefile = MergeFile::new(&test_filename_1, '\t', 0, "0".to_string(), KeyType::String).unwrap();
 
         // Test a fast forward to the middle of the file
-        let result = mergefile.fast_forward(&"124".to_string());
-        assert!(result.is_ok());
-
+        assert!(mergefile.fast_forward(&"124".to_string()).is_ok());
         assert_eq!(mergefile.line, "124\tbbb\t999");
+        assert_eq!(mergefile.beginning_merge_key, "123");
         assert_eq!(mergefile.current_merge_key, "124");
-        assert_eq!(mergefile.beginning_merge_key, ""); // MergeFileManager::new_merge_file sets
-        assert_eq!(mergefile.ending_merge_key, "");
+        assert_eq!(mergefile.ending_merge_key, "0");
 
-        // Test a fast forward to the end of the file
-        let result = mergefile.fast_forward(&"126".to_string());
-        assert!(result.is_err());
-
+        // Test a fast forward past the end of the file
+        assert!(mergefile.fast_forward(&"126".to_string()).is_err());
         assert_eq!(mergefile.line, "125\tbbb\t999");
+        assert_eq!(mergefile.beginning_merge_key, "123");
         assert_eq!(mergefile.current_merge_key, "125");
-        assert_eq!(mergefile.beginning_merge_key, ""); // MergeFileManager::new_merge_file sets
         assert_eq!(mergefile.ending_merge_key, "125");
 
         let _ = fs::remove_file(test_filename_1);
@@ -305,16 +298,16 @@ mod tests {
         create_file(test_filename_1, test_contents_1);
 
         // Add the first file and sanity check
-        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string(), KeyType::String);
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "0".to_string(), KeyType::String);
         assert!(result.is_ok());
 
         let mut mergefile = result.unwrap();
-        mergefile.fast_forward_to_end();
 
         // Ensure the current line is the last one in the above contents
+        mergefile.fast_forward_to_end();
         assert_eq!(mergefile.line, "125\tbbb\t999");
+        assert_eq!(mergefile.beginning_merge_key, "123");
         assert_eq!(mergefile.current_merge_key, "125");
-        assert_eq!(mergefile.beginning_merge_key, ""); // MergeFileManager::new_merge_file sets
         assert_eq!(mergefile.ending_merge_key, "125");
 
         let _ = fs::remove_file(test_filename_1);
@@ -324,6 +317,7 @@ mod tests {
     fn test_impl_iterator() {
         // Set up the test data
         // TODO: Add the PID of the process into the filename
+        // TODO: Can we create temporary files?
         let test_filename_1 = "/tmp/test_impl_formatting.file1.tsv";
         let test_contents_1 = format!("{}\t{}\t{}\n\
                                        {}\t{}\t{}\n\
@@ -335,45 +329,43 @@ mod tests {
         create_file(test_filename_1, test_contents_1);
 
         // Add the first file and sanity check
-        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string(), KeyType::String);
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "0".to_string(), KeyType::String);
         assert!(result.is_ok());
 
         let mut mergefile = result.unwrap();
 
-        assert_eq!(mergefile.line, "");
-        assert_eq!(mergefile.current_merge_key, "");
-
         // Test line 1
-        let result = mergefile.next();
-        assert!(result.is_some());
-        assert_eq!(result, Some("123".to_string()));
-
         assert_eq!(mergefile.line, "123\tbbb\t999");
+        assert_eq!(mergefile.beginning_merge_key, "123");
         assert_eq!(mergefile.current_merge_key, "123");
+        assert_eq!(mergefile.ending_merge_key, "0");
 
         // Test line 2
         let result = mergefile.next();
-        assert!(result.is_some());
         assert_eq!(result, Some("124".to_string()));
 
         assert_eq!(mergefile.line, "124\tbbb\t999");
+        assert_eq!(mergefile.beginning_merge_key, "123");
         assert_eq!(mergefile.current_merge_key, "124");
+        assert_eq!(mergefile.ending_merge_key, "0");
 
         // Test line 3
         let result = mergefile.next();
-        assert!(result.is_some());
         assert_eq!(result, Some("125".to_string()));
 
         assert_eq!(mergefile.line, "125\tbbb\t999");
+        assert_eq!(mergefile.beginning_merge_key, "123");
         assert_eq!(mergefile.current_merge_key, "125");
+        assert_eq!(mergefile.ending_merge_key, "0");
 
         // Test EOF
         let result = mergefile.next();
-        assert!(result.is_none());
         assert_eq!(result, None);
 
         assert_eq!(mergefile.line, "125\tbbb\t999");
+        assert_eq!(mergefile.beginning_merge_key, "123");
         assert_eq!(mergefile.current_merge_key, "125");
+        assert_eq!(mergefile.ending_merge_key, "125");
     }
 
     #[test]
@@ -391,7 +383,7 @@ mod tests {
         create_file(test_filename_1, test_contents_1);
 
         // Add the first file and sanity check
-        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string(), KeyType::String);
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "0".to_string(), KeyType::String);
         assert!(result.is_ok());
 
         let mergefile = result.unwrap();
@@ -427,7 +419,7 @@ mod tests {
         create_file(test_filename_2, test_contents_2);
 
         // Create the first file and initialise it
-        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string(), KeyType::String);
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "0".to_string(), KeyType::String);
         assert!(result.is_ok());
 
         let mut mergefile_1 = result.unwrap();
@@ -435,7 +427,7 @@ mod tests {
         assert!(result.is_ok());
 
         // Create the second file and initialise it
-        let result = MergeFile::new(&test_filename_1, '\t', 0, "".to_string(), KeyType::String);
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "0".to_string(), KeyType::String);
         assert!(result.is_ok());
 
         let mut mergefile_2 = result.unwrap();

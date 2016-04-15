@@ -89,7 +89,7 @@ impl MergeFileManager {
         // Iterate over cache file reading in and creating new CacheFileEntry instances
         for record in cache_reader.decode() {
             let record: CacheFileLine = record.unwrap();
-            println!("CacheFileLine Record: {:?}", record);
+            debug!("CacheFileLine Record: {:?}", record);
 
             // Check if the file is already in the cache
             if cache.get(&record.filename).is_some() {
@@ -101,11 +101,15 @@ impl MergeFileManager {
             }
 
             // Add it into the cache if it isn't
-            if let Ok(merge_file) = MergeFile::new(&record.filename,
+            if let Ok(mut merge_file) = MergeFile::new(&record.filename,
                                                    record.delimiter.chars().next().unwrap(),
                                                    record.key_index.parse::<usize>().unwrap(),
                                                    default_key.clone(),
                                                    key_type.clone()) {
+
+                // Because the cache knows the ending_merge_key, set it as well
+                // this will help if we're writing a new cache, as we can skip the fastforward
+                merge_file.ending_merge_key = record.ending_merge_key.parse::<T>().unwrap();
                 cache.insert(record.filename.clone(), merge_file);
                 debug!("Added {} to the cache successfully!", record.filename);
             } else {
@@ -217,28 +221,28 @@ impl MergeFileManager {
     /// let cache = merge_manager.load_from_glob("/data/*.tsv", '\t', 0);
     /// merge_manager.write_cache("/data/caches/data.cache".to_string(), cache);
     /// ```
-    pub fn write_cache<T>(filename: &PathBuf, cache: HashMap<String, MergeFile<T>>) -> Result<String, String>
-        where
-        T::Err: fmt::Debug,
-        T: Mergeable,
-         {
-        // TODO: Unit test: Given a filename, test the provided cache writing
-        // TODO: Unit test: Given an invalid filename, test the writing ability
+    pub fn write_cache<T>(filename: &PathBuf, cache: HashMap<String, MergeFile<T>>, default_key: T) -> Result<String, String>
+        where T: Mergeable, T::Err: fmt::Debug {
         info!("Writing out cache to disk => {}!", filename.display());
 
         // Open the file
         let mut cache_writer = csv::Writer::from_file(filename)
                                             .unwrap()
                                             .delimiter(b',');
-        debug!("Opened cache file: {}", filename.display());
 
         // Drain the cache into a vec, sort it, then write its contents out to disk
         let mut merge_files = MergeFileManager::cache_to_vec(cache);
         merge_files.sort();
 
         for mut merge_file in merge_files {
-            info!("Fast Forwarding MergeFile {} -> end", &merge_file);
-            merge_file.fast_forward_to_end();
+
+            if merge_file.ending_merge_key == default_key {
+                info!("MergeFile {} was loaded from glob, fastwarding to EOF", &merge_file);
+                merge_file.fast_forward_to_end();
+            } else {
+                info!("MergeFile {} was loaded from cache, skipping fastforward", &merge_file);
+            }
+
             let cache_line = [
                 merge_file.filename,
                 merge_file.beginning_merge_key.to_string(),
@@ -252,7 +256,6 @@ impl MergeFileManager {
         }
 
         cache_writer.flush().unwrap();
-
         Ok("Written cache out to disk.".to_string())
     }
 }
@@ -267,6 +270,7 @@ mod tests {
     use std::fs;
 
     use super::MergeFileManager;
+    use merge_file::MergeFile;
     use settings::KeyType;
 
     fn create_file(filename: &str, contents: String) {
@@ -300,7 +304,7 @@ mod tests {
         create_file(test_filename_2, test_contents_2);
 
         // Add the first file and sanity check
-        let result = MergeFileManager::new_merge_file(&test_filename_1, '\t', 0, "0".to_string(), KeyType::String);
+        let result = MergeFile::new(&test_filename_1, '\t', 0, "0".to_string(), KeyType::String);
         assert!(result.is_ok());
 
         let mergefile = result.unwrap();
@@ -308,7 +312,7 @@ mod tests {
         assert_eq!(mergefile.current_merge_key, "123");
 
         // Add the second file and sanity check
-        let result = MergeFileManager::new_merge_file(&test_filename_2, ',', 0, "0".to_string(), KeyType::String);
+        let result = MergeFile::new(&test_filename_2, ',', 0, "0".to_string(), KeyType::String);
         assert!(result.is_ok());
 
         let mergefile = result.unwrap();
@@ -520,7 +524,7 @@ mod tests {
 
         let test_cache_filename = "/tmp/test_cache.cache";
         let test_cache_path = PathBuf::from(&test_cache_filename);
-        let result = MergeFileManager::write_cache(&test_cache_path, cache);
+        let result = MergeFileManager::write_cache(&test_cache_path, cache, "0".to_string());
         assert!(result.is_ok());
 
         let result = MergeFileManager::retrieve_from_cache(&test_cache_path, "0".to_string(), KeyType::String);
