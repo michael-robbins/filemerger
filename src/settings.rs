@@ -91,14 +91,14 @@ pub fn load(args: Vec<String>) -> Option<MergeSettings> {
         error_usage_and_bail("Delimiter can only be a single character", &program, &opts);
     }
 
-    debug!("We got a delimiter of: {}", delimiter_char);
+    debug!("We got a --delimiter of: '{}'", delimiter_char);
 
     // Verify the --index parameter
-    if ! matches.opt_present("key_index") {
+    if ! matches.opt_present("key-index") {
         error_usage_and_bail("We need a --key-index parameter", &program, &opts);
     }
 
-    let key_index = matches.opt_str("key_index").unwrap().parse::<usize>().unwrap();
+    let key_index = matches.opt_str("key-index").unwrap().parse::<usize>().unwrap();
     debug!("We got an --key-index of {}", key_index);
 
     // Verify the --glob parameter(s)
@@ -110,10 +110,10 @@ pub fn load(args: Vec<String>) -> Option<MergeSettings> {
         glob_choices = matches.opt_strs("glob");
 
         for glob_choice in &glob_choices {
-            debug!("We got the following glob: {:?}", glob_choice);
+            debug!("We got --glob: {:?}", glob_choice);
         }
     } else {
-        debug!("We didn't get any globs!");
+        debug!("We didn't get any --glob(s)!");
     }
 
     // Verify the --cache-file parameter
@@ -121,10 +121,10 @@ pub fn load(args: Vec<String>) -> Option<MergeSettings> {
 
     if matches.opt_present("cache-file") {
         let result = matches.opt_str("cache-filename").unwrap();
-        debug!("We got the following cache-file: {}", result);
+        debug!("We got --cache-file: {}", result);
         cache_path = Some(PathBuf::from(result));
     } else {
-        debug!("We didn't get any cache-file!");
+        debug!("We didn't get any --cache-file!");
     }
 
     // Check that at least one required arg is present
@@ -141,7 +141,7 @@ pub fn load(args: Vec<String>) -> Option<MergeSettings> {
 
         match result {
             Some(result) => {
-                debug!("key-start was set to: {}", result);
+                debug!("--key-start was set to: {}", result);
                 key_start = Some(result);
             },
             None => {
@@ -159,7 +159,7 @@ pub fn load(args: Vec<String>) -> Option<MergeSettings> {
 
         match result {
             Some(result) => {
-                debug!("key-end was set to: {}", result);
+                debug!("--key-end was set to: {}", result);
                 key_end = Some(result);
             },
             None => {

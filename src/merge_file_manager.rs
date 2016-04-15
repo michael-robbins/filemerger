@@ -184,7 +184,7 @@ impl MergeFileManager {
                         heap.push(next_file);
                     }
                 } else {
-                    println!("We hit EOF for {} with a final merge key of {}", next_file.filename, next_file.ending_merge_key);
+                    info!("We hit EOF for {} with a final merge key of {}", next_file.filename, next_file.ending_merge_key);
                     discarded.push(next_file);
                 }
             }
@@ -200,7 +200,7 @@ impl MergeFileManager {
 
                     heap.push(next_file);
                 } else {
-                    println!("We hit EOF for {} with a final merge key of {}", next_file.filename, next_file.ending_merge_key);
+                    info!("We hit EOF for {} with a final merge key of {}", next_file.filename, next_file.ending_merge_key);
                     discarded.push(next_file);
                 }
             }
