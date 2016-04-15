@@ -213,7 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn test_new() {
+    fn new() {
         // Set up the test data
         // TODO: Add the PID of the process into the filename
         let test_filename_1 = "/tmp/test_new.file1.tsv";
@@ -249,7 +249,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fast_forward() {
+    fn fast_forward() {
         // Set up the test data
         // TODO: Add the PID of the process into the filename
         let test_filename_1 = "/tmp/test_fast_forward.file1.tsv";
@@ -284,7 +284,7 @@ mod tests {
 
 
     #[test]
-    fn test_fast_forward_to_end() {
+    fn fast_forward_to_end() {
         // Set up the test data
         // TODO: Add the PID of the process into the filename
         let test_filename_1 = "/tmp/test_fast_forward_to_end.file1.tsv";
@@ -314,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn test_impl_iterator() {
+    fn impl_iterator() {
         // Set up the test data
         // TODO: Add the PID of the process into the filename
         // TODO: Can we create temporary files?
@@ -369,7 +369,7 @@ mod tests {
     }
 
     #[test]
-    fn test_impl_formatting() {
+    fn impl_formatting() {
         // Set up the test data
         // TODO: Add the PID of the process into the filename
         let test_filename_1 = "/tmp/test_impl_formatting.file1.tsv";
@@ -394,7 +394,7 @@ mod tests {
     }
 
     #[test]
-    fn test_impl_ordering_and_equality() {
+    fn impl_ordering_and_equality() {
         // Set up the test data
         // TODO: Add the PID of the process into the filename
         let test_filename_1 = "/tmp/test_impl_ordering.file1.tsv";

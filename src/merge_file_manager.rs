@@ -280,7 +280,7 @@ mod tests {
     }
 
     #[test]
-    fn test_new_merge_file() {
+    fn new_merge_file() {
         // Set up the test data
         // TODO: Add the PID of the process into the filename
         let test_filename_1 = "/tmp/test_add_file.file1.tsv";
@@ -325,7 +325,7 @@ mod tests {
     }
 
     #[test]
-    fn test_retrieve_from_glob() {
+    fn retrieve_from_glob() {
         let test_filename_1 = "/tmp/test_retrieve_from_glob.file1.tsv";
         let test_contents_1 = format!("{}\t{}\t{}\n
                                        {}\t{}\t{}\n
@@ -368,7 +368,7 @@ mod tests {
     }
 
     #[test]
-    fn test_retrieve_from_cache() {
+    fn retrieve_from_cache() {
         let test_filename_1 = "/tmp/test_retrieve_from_cache.file1.tsv";
         let test_contents_1 = format!("{key_1}\t{foo}\t{bar}\n\
                                        {key_2}\t{foo}\t{bar}\n\
@@ -410,7 +410,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cache_to_vec() {
+    fn cache_to_vec() {
         // Build up a cache
         let test_filename_1 = "/tmp/test_cache_to_vec.file1.tsv";
         let test_contents_1 = format!("{}\t{}\t{}\n\
@@ -448,7 +448,7 @@ mod tests {
     }
 
     #[test]
-    fn test_begin_merge() {
+    fn begin_merge() {
         //pub fn begin_merge(mut cache: HashMap<String, MergeFile>, merge_start: &String, merge_end: &String, print_merge_output: bool) {
         let test_filename_1 = "/tmp/test_begin_merge.file1.tsv";
         let test_contents_1 = format!("{}\t{}\t{}\n\
@@ -494,7 +494,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_cache() {
+    fn write_cache() {
         let test_filename_1 = "/tmp/test_write_cache.file1.tsv";
         let test_contents_1 = format!("{}\t{}\t{}\n\
                                        {}\t{}\t{}\n\
