@@ -86,9 +86,6 @@ fn begin_merge<T>(mut merge_cache: HashMap<String, MergeFile<T>>, key_start: Opt
 }
 
 fn main() {
-    // Set up argument parsing
-    let args = env::args().collect::<Vec<String>>();
-
     // Allocate an empty cache for each KeyType variant, it's hacky and there's plenty of code duplication
     // but we need to do it as Rust cannot have a single HashMap that can contiain two types of MergeFile<T>
     // and because each match arm of KeyType is a different type we would have to use some box trait magic.
@@ -96,9 +93,10 @@ fn main() {
     let mut merge_cache_i32 = HashMap::new();
     let mut merge_cache_u32 = HashMap::new();
 
+    // Set up argument parsing
+    let args = env::args().collect::<Vec<String>>();
     let settings = settings::load(args).unwrap();
 
-    // Load cache path
     let cache_present = settings.cache_path.is_some();
     let glob_present = settings.glob_choices.len() > 0;
 
