@@ -126,24 +126,19 @@ impl MergeFileManager {
     }
 
     /// Consumes a HashMap<K, MergeFile> and returns one with only existing MergeFile(s)
-    pub fn fast_forward_cache<T>(mut cache: HashMap<String, MergeFile<T>>, merge_start: Option<String>) -> HashMap<String, MergeFile<T>>
+    pub fn fast_forward_cache<T>(mut cache: HashMap<String, MergeFile<T>>, merge_start: String) -> HashMap<String, MergeFile<T>>
         where T: Mergeable, T::Err: fmt::Debug {
-        if merge_start.is_some() {
-            let mut files_to_delete: Vec<String> = vec!();
-            let merge_start = merge_start.unwrap();
+        let mut files_to_delete: Vec<String> = vec!();
 
-            for (_, merge_file) in cache.iter_mut() {
-                if merge_file.fast_forward(&merge_start).is_err() {
-                    files_to_delete.push(merge_file.filename.clone());
-                }
+        for (_, merge_file) in cache.iter_mut() {
+            if merge_file.fast_forward(&merge_start).is_err() {
+                files_to_delete.push(merge_file.filename.clone());
             }
+        }
 
-            for filename in files_to_delete {
-                info!("Removing file {} from cache", filename);
-                cache.remove(&filename);
-            }
-        } else {
-            debug!("Fast forward got an empty merge_start, not doing anything.");
+        for filename in files_to_delete {
+            info!("Removing file {} from cache", filename);
+            cache.remove(&filename);
         }
 
         cache
@@ -481,7 +476,7 @@ mod tests {
         let merge_start = "124".to_string();
         let merge_end = "126".to_string();
 
-        let cache = MergeFileManager::fast_forward_cache(cache, Some(merge_start));
+        let cache = MergeFileManager::fast_forward_cache(cache, merge_start);
         let discarded = MergeFileManager::begin_merge(cache, Some(merge_end.clone()), false);
 
         // Both original files should exist and have correct final merge keys

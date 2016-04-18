@@ -22,9 +22,68 @@ mod settings;
 
 use merge_file_manager::MergeFileManager;
 use std::collections::HashMap;
+use merge_file::Mergeable;
+use merge_file::MergeFile;
 use std::path::PathBuf;
 use settings::KeyType;
 use std::env;
+use std::fmt;
+
+fn retrieve_from_cache<T>(cache_path: &PathBuf, default_key: T, key_type: KeyType, mut merge_cache: HashMap<String, MergeFile<T>>)
+    -> HashMap<String, MergeFile<T>>
+    where T: Mergeable, T::Err: fmt::Debug {
+    match MergeFileManager::retrieve_from_cache(&cache_path, default_key, key_type) {
+        Ok(merge_files) => {
+            merge_cache.extend(merge_files);
+            debug!("Added cachefile {} to the cache", cache_path.display())
+        },
+        Err(error) => {
+            error!("Unable to load from cache file: {}", cache_path.display());
+            error!("Error was: {}", error);
+        }
+    }
+    merge_cache
+}
+
+fn retrieve_from_glob<T>(glob_choice: &str, delimiter: char, index: usize, default_key: T, key_type: KeyType, mut merge_cache: HashMap<String, MergeFile<T>>)
+    -> HashMap<String, MergeFile<T>>
+    where T: Mergeable, T::Err: fmt::Debug {
+    match MergeFileManager::retrieve_from_glob(&glob_choice, delimiter, index, default_key, key_type) {
+        Ok(merge_files) => {
+            merge_cache.extend(merge_files);
+            debug!("Added glob {} to the cache", glob_choice);
+        },
+        Err(error) => {
+            error!("Unable to load from glob: {}", glob_choice);
+            error!("Error was: {}", error);
+        }
+    }
+    merge_cache
+}
+
+fn write_cache<T>(cache_path: &PathBuf, merge_cache: HashMap<String, MergeFile<T>>, default_key: T)
+    where T: Mergeable, T::Err: fmt::Debug {
+    match MergeFileManager::write_cache(&cache_path, merge_cache, default_key) {
+        Ok(result) => {info!("{}", result)},
+        Err(result) => {error!("{}", result)},
+    }
+}
+
+fn begin_merge<T>(mut merge_cache: HashMap<String, MergeFile<T>>, key_start: Option<String>, key_end: Option<String>, print_merge_output: bool)
+    where T: Mergeable, T::Err: fmt::Debug {
+    // If we have a start position, then fast forward to it
+    if key_start.is_some() {
+        merge_cache = MergeFileManager::fast_forward_cache(merge_cache, key_start.unwrap());
+    }
+
+    if key_end.is_some() {
+        info!("Beginning merge -> {}", key_end.clone().unwrap());
+    } else {
+        info!("Beginning merge -> EOF");
+    }
+
+    MergeFileManager::begin_merge(merge_cache, key_end, print_merge_output);
+}
 
 fn main() {
     // Set up argument parsing
@@ -33,9 +92,9 @@ fn main() {
     // Allocate an empty cache for each KeyType variant, it's hacky and there's plenty of code duplication
     // but we need to do it as Rust cannot have a single HashMap that can contiain two types of MergeFile<T>
     // and because each match arm of KeyType is a different type we would have to use some box trait magic.
-    let mut mergefile_cache_string = HashMap::new();
-    let mut mergefile_cache_i32 = HashMap::new();
-    let mut mergefile_cache_u32 = HashMap::new();
+    let mut merge_cache_string = HashMap::new();
+    let mut merge_cache_i32 = HashMap::new();
+    let mut merge_cache_u32 = HashMap::new();
 
     let settings = settings::load(args).unwrap();
 
@@ -51,108 +110,61 @@ fn main() {
         if cache_path.exists() {
             match settings.key_type {
                 KeyType::Unsigned32Integer => {
-                    match MergeFileManager::retrieve_from_cache(&cache_path, 0u32, settings.key_type.clone()) {
-                        Ok(merge_files) => {
-                            mergefile_cache_u32.extend(merge_files);
-                            debug!("Added cachefile {} to the cache", cache_path.display())
-                        },
-                        Err(error) => {
-                            error!("Unable to load from cache file: {}", cache_path.display());
-                            error!("Error was: {}", error);
-                        }
-                    }
+                    merge_cache_u32 = retrieve_from_cache(&cache_path,
+                                                          0u32,
+                                                          settings.key_type.clone(),
+                                                          merge_cache_u32);
                 },
                 KeyType::Signed32Integer => {
-                    match MergeFileManager::retrieve_from_cache(&cache_path, 0i32, settings.key_type.clone()) {
-                        Ok(merge_files) => {
-                            mergefile_cache_i32.extend(merge_files);
-                            debug!("Added cachefile {} to the cache", cache_path.display())
-                        },
-                        Err(error) => {
-                            error!("Unable to load from cache file: {}", cache_path.display());
-                            error!("Error was: {}", error);
-                        }
-                    }
+                    merge_cache_i32 = retrieve_from_cache(&cache_path,
+                                                          0i32,
+                                                          settings.key_type.clone(),
+                                                          merge_cache_i32);
                 },
                 KeyType::String => {
-                    match MergeFileManager::retrieve_from_cache(&cache_path, "0".to_string(), settings.key_type.clone()) {
-                        Ok(merge_files) => {
-                            mergefile_cache_string.extend(merge_files);
-                            debug!("Added cachefile {} to the cache", cache_path.display())
-                        },
-                        Err(error) => {
-                            error!("Unable to load from cache file: {}", cache_path.display());
-                            error!("Error was: {}", error);
-                        }
-                    }
+                    merge_cache_string = retrieve_from_cache(&cache_path,
+                                                             "0".to_string(),
+                                                             settings.key_type.clone(),
+                                                             merge_cache_string);
                 }
             }
         }
     }
 
     if glob_present {
-        debug!("Getting all files from the glob(s)!");
         for glob_choice in settings.glob_choices {
             match settings.key_type {
                 KeyType::Unsigned32Integer => {
-                    match MergeFileManager::retrieve_from_glob(&glob_choice, settings.delimiter, settings.key_index, 0u32, settings.key_type.clone()) {
-                        Ok(merge_files) => {
-                            mergefile_cache_u32.extend(merge_files);
-                            debug!("Added glob {} to the cache", glob_choice)
-                        },
-                        Err(error) => {
-                            error!("Unable to load from glob: {}", glob_choice);
-                            error!("Error was: {}", error);
-                        }
-                    }
+                    merge_cache_u32 = retrieve_from_glob(&glob_choice,
+                                                         settings.delimiter,
+                                                         settings.key_index,
+                                                         0u32,
+                                                         settings.key_type.clone(),
+                                                         merge_cache_u32);
                 },
                 KeyType::Signed32Integer => {
-                    match MergeFileManager::retrieve_from_glob(&glob_choice, settings.delimiter, settings.key_index, 0i32, settings.key_type.clone()) {
-                        Ok(merge_files) => {
-                            mergefile_cache_i32.extend(merge_files);
-                            debug!("Added glob {} to the cache", glob_choice)
-                        },
-                        Err(error) => {
-                            error!("Unable to load from glob: {}", glob_choice);
-                            error!("Error was: {}", error);
-                        }
-                    }
+                    merge_cache_i32 = retrieve_from_glob(&glob_choice,
+                                                         settings.delimiter,
+                                                         settings.key_index,
+                                                         0i32, settings.key_type.clone(),
+                                                         merge_cache_i32);
                 },
                 KeyType::String => {
-                    match MergeFileManager::retrieve_from_glob(&glob_choice, settings.delimiter, settings.key_index, "0".to_string(), settings.key_type.clone()) {
-                        Ok(merge_files) => {
-                            mergefile_cache_string.extend(merge_files);
-                            debug!("Added glob {} to the cache", glob_choice)
-                        },
-                        Err(error) => {
-                            error!("Unable to load from glob: {}", glob_choice);
-                            error!("Error was: {}", error);
-                        }
-                    }
+                    merge_cache_string = retrieve_from_glob(&glob_choice,
+                                                            settings.delimiter,
+                                                            settings.key_index,
+                                                            "0".to_string(),
+                                                            settings.key_type.clone(),
+                                                            merge_cache_string);
                 }
             }
         }
 
         if cache_present {
             match settings.key_type {
-                KeyType::Unsigned32Integer => {
-                    match MergeFileManager::write_cache(&cache_path, mergefile_cache_u32, 0u32) {
-                        Ok(result) => {info!("{}", result)},
-                        Err(result) => {error!("{}", result)},
-                    }
-                },
-                KeyType::Signed32Integer => {
-                    match MergeFileManager::write_cache(&cache_path, mergefile_cache_i32, 0i32) {
-                        Ok(result) => {info!("{}", result)},
-                        Err(result) => {error!("{}", result)},
-                    }
-                },
-                KeyType::String => {
-                    match MergeFileManager::write_cache(&cache_path, mergefile_cache_string, "0".to_string()) {
-                        Ok(result) => {info!("{}", result)},
-                        Err(result) => {error!("{}", result)},
-                    }
-                },
+                KeyType::Unsigned32Integer => write_cache(&cache_path, merge_cache_u32, 0u32),
+                KeyType::Signed32Integer => write_cache(&cache_path, merge_cache_i32, 0i32),
+                KeyType::String => write_cache(&cache_path, merge_cache_string, "0".to_string()),
             }
 
             // Bail early as glob + cache == don't perform merge
@@ -162,38 +174,8 @@ fn main() {
 
     // Begin the merge process
     match settings.key_type {
-        KeyType::Unsigned32Integer => {
-            let cache = MergeFileManager::fast_forward_cache(mergefile_cache_u32, settings.key_start);
-
-            if settings.key_end.is_some() {
-                info!("Beginning merge -> {}", settings.key_end.clone().unwrap());
-            } else {
-                info!("Beginning merge -> EOF");
-            }
-
-            MergeFileManager::begin_merge(cache, settings.key_end, true);
-        },
-        KeyType::Signed32Integer => {
-            let cache = MergeFileManager::fast_forward_cache(mergefile_cache_i32, settings.key_start);
-
-            if settings.key_end.is_some() {
-                info!("Beginning merge -> {}", settings.key_end.clone().unwrap());
-            } else {
-                info!("Beginning merge -> EOF");
-            }
-
-            MergeFileManager::begin_merge(cache, settings.key_end, true);
-        },
-        KeyType::String => {
-            let cache = MergeFileManager::fast_forward_cache(mergefile_cache_string, settings.key_start);
-
-            if settings.key_end.is_some() {
-                info!("Beginning merge -> {}", settings.key_end.clone().unwrap());
-            } else {
-                info!("Beginning merge -> EOF");
-            }
-
-            MergeFileManager::begin_merge(cache, settings.key_end, true);
-        }
+        KeyType::Unsigned32Integer => begin_merge(merge_cache_u32, settings.key_start, settings.key_end, true),
+        KeyType::Signed32Integer => begin_merge(merge_cache_i32, settings.key_start, settings.key_end, true),
+        KeyType::String => begin_merge(merge_cache_string, settings.key_start, settings.key_end, true),
     }
 }
