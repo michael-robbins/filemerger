@@ -120,7 +120,7 @@ pub fn load(args: Vec<String>) -> Option<MergeSettings> {
     let mut cache_path = None;
 
     if matches.opt_present("cache-file") {
-        let result = matches.opt_str("cache-filename").unwrap();
+        let result = matches.opt_str("cache-file").unwrap();
         debug!("We got --cache-file: {}", result);
         cache_path = Some(PathBuf::from(result));
     } else {
