@@ -76,12 +76,6 @@ fn begin_merge<T>(mut merge_cache: HashMap<String, MergeFile<T>>, key_start: Opt
         merge_cache = MergeFileManager::fast_forward_cache(merge_cache, key_start.unwrap());
     }
 
-    if key_end.is_some() {
-        info!("Beginning merge -> {}", key_end.clone().unwrap());
-    } else {
-        info!("Beginning merge -> EOF");
-    }
-
     MergeFileManager::begin_merge(merge_cache, key_end, print_merge_output);
 }
 
