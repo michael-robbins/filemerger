@@ -164,9 +164,9 @@ impl<T: fmt::Display> fmt::Display for MergeFile<T> {
 
 impl<T: cmp::Ord> cmp::Ord for MergeFile<T> {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        if self.current_merge_key < other.current_merge_key {
+        if self.current_merge_key > other.current_merge_key {
             return cmp::Ordering::Less;
-        } else if self.current_merge_key > other.current_merge_key {
+        } else if self.current_merge_key < other.current_merge_key {
             return cmp::Ordering::Greater;
         }
         cmp::Ordering::Equal
@@ -175,9 +175,9 @@ impl<T: cmp::Ord> cmp::Ord for MergeFile<T> {
 
 impl<T: cmp::PartialOrd> cmp::PartialOrd for MergeFile<T> {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        if self.current_merge_key < other.current_merge_key {
+        if self.current_merge_key > other.current_merge_key {
             return Some(cmp::Ordering::Less);
-        } else if self.current_merge_key > other.current_merge_key {
+        } else if self.current_merge_key < other.current_merge_key {
             return Some(cmp::Ordering::Greater);
         }
         Some(cmp::Ordering::Equal)

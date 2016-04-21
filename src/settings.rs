@@ -84,14 +84,21 @@ pub fn load(args: Vec<String>) -> Option<MergeSettings> {
         error_usage_and_bail("We need a --delimiter parameter", &program, &opts);
     }
 
-    let delimiter_string = matches.opt_str("delimiter").unwrap();
-    let delimiter_char = delimiter_string.chars().next().unwrap();
+    let delimiter_char = matches.opt_str("delimiter").unwrap().chars().next().unwrap();
+    let delimiter_string = delimiter_char.to_string();
 
     if delimiter_string.len() > 1 {
         error_usage_and_bail("Delimiter can only be a single character", &program, &opts);
     }
 
-    debug!("We got a --delimiter of: '{}'", delimiter_char);
+    let pretty_delimiter = match delimiter_char {
+        '\t' => "tsv",
+        ','  => "csv",
+        '|'  => "psv",
+        _    => delimiter_string.as_ref(),
+    };
+
+    debug!("We got a --delimiter of: '{}'", pretty_delimiter);
 
     // Verify the --index parameter
     if ! matches.opt_present("key-index") {

@@ -39,7 +39,7 @@ DATA_OUTPUT = "data_output"
 DEFAULT_REQUIRED_CONTEXT = (NAME, BINARY, DATA_DELIMITER, DATA_INDEX)
 
 # Define test types
-BASE_CMD = "{binary} -v -v -v --delimiter {data_delimiter} --index {data_index}"
+BASE_CMD = "{binary} -v -v -v --delimiter {data_delimiter} --key-index {data_index}"
 
 BUILD_CACHE = "--glob {data_glob} --cache-file {data_cache}"
 MERGE_FILES_FROM_CACHE = "--cache-file {data_cache} --key-start {data_start} --key-end {data_end}"
@@ -115,7 +115,7 @@ tests.append({
     NAME: "Build a cache based of valid data files",
     TEST_TYPE: BUILD_CACHE,
     BINARY: "../target/debug/file-merger",
-    DATA_DELIMITER: "tsv",
+    DATA_DELIMITER: '\\\t',
     DATA_INDEX: "0",
     DATA_GLOB: os.path.realpath(os.path.join(os.getcwd(), "./files/data_files/data?.tsv")),
     DATA_CACHE: "./test1.cache.tmp",
@@ -125,7 +125,7 @@ tests.append({
     NAME: "Merge files with a valid cache",
     TEST_TYPE: MERGE_FILES_FROM_CACHE,
     BINARY: "../target/debug/file-merger",
-    DATA_DELIMITER: "tsv",
+    DATA_DELIMITER: "\\\t",
     DATA_INDEX: "0",
     DATA_CACHE: "./files/cache_files/test2.cache",
     DATA_OUTPUT: "./files/output_files/test2.output",
@@ -137,7 +137,7 @@ tests.append({
     NAME: "Merge files directly from valid data files",
     TEST_TYPE: MERGE_FILES_FROM_GLOB,
     BINARY: "../target/debug/file-merger",
-    DATA_DELIMITER: "tsv",
+    DATA_DELIMITER: "\\\t",
     DATA_INDEX: "0",
     DATA_GLOB: os.path.realpath(os.path.join(os.getcwd(), "./files/data_files/data?.tsv")),
     DATA_OUTPUT: "./files/output_files/test3.output",
@@ -151,7 +151,11 @@ print("Results: ", end="")
 for test in tests:
     # Ensure the cache file doesn't exist, delete it if it does
     if test[TEST_TYPE] == BUILD_CACHE and os.path.exists(test[DATA_CACHE]):
-        os.remove(test[DATA_CACHE])
+        try:
+            os.remove(test[DATA_CACHE])
+        except OSError:
+            # Doesn't exist (or we don't have permissions)
+            pass
 
     try:
         run_test(context=test)
@@ -163,7 +167,11 @@ for test in tests:
 
     # Clean up after ourselves
     if test[TEST_TYPE] == BUILD_CACHE:
-        os.remove(test[DATA_CACHE])
+        try:
+            os.remove(test[DATA_CACHE])
+        except OSError:
+            # Doesn't exist (or we don't have permissions)
+            pass
     elif test[TEST_TYPE] == MERGE_FILES_FROM_CACHE:
         pass
     elif test[TEST_TYPE] == MERGE_FILES_FROM_GLOB:

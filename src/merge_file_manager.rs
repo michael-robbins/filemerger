@@ -100,9 +100,20 @@ impl MergeFileManager {
                 }
             }
 
+            let delimiter = match record.delimiter.as_ref() {
+                "tsv" => '\t',
+                "csv" => ',',
+                "psv" => '|',
+                // Assume it's a single character
+                _ => {
+                    warn!("Assuming delimiter is the first character in the field");
+                    record.delimiter.chars().next().unwrap()
+                },
+            };
+
             // Add it into the cache if it isn't
             if let Ok(mut merge_file) = MergeFile::new(&record.filename,
-                                                   record.delimiter.chars().next().unwrap(),
+                                                   delimiter,
                                                    record.key_index.parse::<usize>().unwrap(),
                                                    default_key.clone(),
                                                    key_type.clone()) {
@@ -238,11 +249,18 @@ impl MergeFileManager {
                 info!("MergeFile {} was loaded from cache, skipping fastforward", &merge_file);
             }
 
+            let pretty_delimiter = match merge_file.delimiter {
+                '\t' => "tsv".to_string(),
+                ',' => "csv".to_string(),
+                '|' => "psv".to_string(),
+                _   => merge_file.delimiter.to_string(),
+            };
+
             let cache_line = [
                 merge_file.filename,
                 merge_file.beginning_merge_key.to_string(),
                 merge_file.ending_merge_key.to_string(),
-                merge_file.delimiter.to_string(),
+                pretty_delimiter,
                 merge_file.key_index.to_string(),
                 merge_file.filesize.to_string()
             ];
