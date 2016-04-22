@@ -3,6 +3,7 @@ use std::io::{Error, ErrorKind};
 use std::collections::HashMap;
 use std::io::prelude::*;
 use std::path::PathBuf;
+use std::time;
 use std::fmt;
 use std::fs;
 use std::io;
@@ -169,6 +170,9 @@ impl MergeFileManager {
         where T: Mergeable, T::Err: fmt::Debug {
         let mut heap = BinaryHeap::from(MergeFileManager::cache_to_vec(cache));
         let mut discarded = Vec::new();
+        let mut lines_emitted = 0;
+        let mut lines_emitted_since_last_checkpoint;
+        let mut checkpoint = time::Instant::now();
 
         if merge_end.is_some() {
             let merge_end = merge_end.unwrap().parse::<T>().unwrap();
@@ -188,6 +192,23 @@ impl MergeFileManager {
                         }
 
                         heap.push(next_file);
+
+                        lines_emitted += 1;
+                        if lines_emitted % 10000 == 0 {
+                            // Perform checkpoint
+                            let now = time::Instant::now();
+                            let duration = now.duration_since(checkpoint).as_secs();
+                            checkpoint = now;
+                            lines_emitted_since_last_checkpoint = lines_emitted;
+                            info!("{}", duration);
+                            let lines_per_second;
+                            if duration < 1 {
+                                lines_per_second = lines_emitted_since_last_checkpoint;
+                            } else {
+                                lines_per_second = lines_emitted_since_last_checkpoint / duration;
+                            }
+                            info!("Processed {} lines @ {}/s", lines_emitted, lines_per_second);
+                        }
                     }
                 } else {
                     info!("We hit EOF for {} with a final merge key of {}", next_file.filename, next_file.ending_merge_key);
@@ -205,13 +226,29 @@ impl MergeFileManager {
                     }
 
                     heap.push(next_file);
+
+                    lines_emitted += 1;
+                    if lines_emitted % 10000 == 0 {
+                        // Perform checkpoint
+                        let now = time::Instant::now();
+                        let duration = now.duration_since(checkpoint).as_secs();
+                        checkpoint = now;
+                        lines_emitted_since_last_checkpoint = lines_emitted;
+                        info!("{}", duration);
+                        let lines_per_second;
+                        if duration < 1 {
+                            lines_per_second = lines_emitted_since_last_checkpoint;
+                        } else {
+                            lines_per_second = lines_emitted_since_last_checkpoint / duration;
+                        }
+                        info!("Processed {} lines @ {}/s", lines_emitted, lines_per_second);
+                    }
                 } else {
                     info!("We hit EOF for {} with a final merge key of {}", next_file.filename, next_file.ending_merge_key);
                     discarded.push(next_file);
                 }
             }
         }
-
 
         discarded
     }
