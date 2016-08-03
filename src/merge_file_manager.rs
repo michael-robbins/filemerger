@@ -1,7 +1,6 @@
 use std::collections::BinaryHeap;
 use std::io::{Error, ErrorKind};
 use std::collections::HashMap;
-use std::io::prelude::*;
 use std::path::PathBuf;
 use std::time;
 use std::fmt;
