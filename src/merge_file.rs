@@ -74,7 +74,7 @@ impl<T: Mergeable> MergeFile<T> where T::Err: fmt::Debug {
             },
             None => {
                 warn!("Unable to aquire file extention for {}", filename);
-                return Err(Error::new(ErrorKind::Other, format!("File extension invalid?")))
+                return Err(Error::new(ErrorKind::Other, "File extension invalid?"))
             },
         };
 
@@ -99,7 +99,7 @@ impl<T: Mergeable> MergeFile<T> where T::Err: fmt::Debug {
         }
     }
 
-    pub fn fast_forward(&mut self, merge_start: &String) -> Result<&'static str,&'static str> {
+    pub fn fast_forward(&mut self, merge_start: &str) -> Result<&'static str,&'static str> {
         debug!("MergeFile<{}>: Fastforwarding -> {}", self.filename, merge_start);
         let merge_start = merge_start.parse::<T>().unwrap();
         while self.current_merge_key < merge_start {

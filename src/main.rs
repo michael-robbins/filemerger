@@ -22,6 +22,7 @@ mod settings;
 
 use merge_file_manager::MergeFileManager;
 use std::collections::HashMap;
+use settings::MergeSettingsParser;
 use merge_file::Mergeable;
 use merge_file::MergeFile;
 use std::path::PathBuf;
@@ -32,7 +33,7 @@ use std::fmt;
 fn retrieve_from_cache<T>(cache_path: &PathBuf, default_key: T, key_type: KeyType, mut merge_cache: HashMap<String, MergeFile<T>>)
     -> HashMap<String, MergeFile<T>>
     where T: Mergeable, T::Err: fmt::Debug {
-    match MergeFileManager::retrieve_from_cache(&cache_path, default_key, key_type) {
+    match MergeFileManager::retrieve_from_cache(cache_path, default_key, key_type) {
         Ok(merge_files) => {
             merge_cache.extend(merge_files);
             debug!("Added cachefile {} to the cache", cache_path.display())
@@ -48,7 +49,7 @@ fn retrieve_from_cache<T>(cache_path: &PathBuf, default_key: T, key_type: KeyTyp
 fn retrieve_from_glob<T>(glob_choice: &str, delimiter: char, index: usize, default_key: T, key_type: KeyType, mut merge_cache: HashMap<String, MergeFile<T>>)
     -> HashMap<String, MergeFile<T>>
     where T: Mergeable, T::Err: fmt::Debug {
-    match MergeFileManager::retrieve_from_glob(&glob_choice, delimiter, index, default_key, key_type) {
+    match MergeFileManager::retrieve_from_glob(glob_choice, delimiter, index, default_key, key_type) {
         Ok(merge_files) => {
             merge_cache.extend(merge_files);
             debug!("Added glob {} to the cache", glob_choice);
@@ -63,7 +64,7 @@ fn retrieve_from_glob<T>(glob_choice: &str, delimiter: char, index: usize, defau
 
 fn write_cache<T>(cache_path: &PathBuf, merge_cache: HashMap<String, MergeFile<T>>, default_key: T)
     where T: Mergeable, T::Err: fmt::Debug {
-    match MergeFileManager::write_cache(&cache_path, merge_cache, default_key) {
+    match MergeFileManager::write_cache(cache_path, merge_cache, default_key) {
         Ok(result) => {info!("{}", result)},
         Err(result) => {error!("{}", result)},
     }
@@ -89,85 +90,92 @@ fn main() {
 
     // Set up argument parsing
     let args = env::args().collect::<Vec<String>>();
-    let settings = settings::load(args).unwrap();
+    let parser = MergeSettingsParser::new(args);
+    let settings_result = parser.parse();
 
-    let cache_present = settings.cache_path.is_some();
-    let glob_present = settings.glob_choices.len() > 0;
+    if settings_result.is_err() {
+        parser.error_usage_and_bail(settings_result.unwrap_err().as_ref());
+    } else {
+        let settings = settings_result.unwrap();
+        let cache_present = settings.cache_path.is_some();
+        let glob_present = settings.glob_choices.is_some();
 
-    let mut cache_path = PathBuf::from("");
-
-    if cache_present {
-        cache_path = settings.cache_path.unwrap();
-
-        if cache_path.exists() {
-            match settings.key_type {
-                KeyType::Unsigned32Integer => {
-                    merge_cache_u32 = retrieve_from_cache(&cache_path,
-                                                          0u32,
-                                                          settings.key_type.clone(),
-                                                          merge_cache_u32);
-                },
-                KeyType::Signed32Integer => {
-                    merge_cache_i32 = retrieve_from_cache(&cache_path,
-                                                          0i32,
-                                                          settings.key_type.clone(),
-                                                          merge_cache_i32);
-                },
-                KeyType::String => {
-                    merge_cache_string = retrieve_from_cache(&cache_path,
-                                                             "0".to_string(),
-                                                             settings.key_type.clone(),
-                                                             merge_cache_string);
-                }
-            }
-        }
-    }
-
-    if glob_present {
-        for glob_choice in settings.glob_choices {
-            match settings.key_type {
-                KeyType::Unsigned32Integer => {
-                    merge_cache_u32 = retrieve_from_glob(&glob_choice,
-                                                         settings.delimiter,
-                                                         settings.key_index,
-                                                         0u32,
-                                                         settings.key_type.clone(),
-                                                         merge_cache_u32);
-                },
-                KeyType::Signed32Integer => {
-                    merge_cache_i32 = retrieve_from_glob(&glob_choice,
-                                                         settings.delimiter,
-                                                         settings.key_index,
-                                                         0i32, settings.key_type.clone(),
-                                                         merge_cache_i32);
-                },
-                KeyType::String => {
-                    merge_cache_string = retrieve_from_glob(&glob_choice,
-                                                            settings.delimiter,
-                                                            settings.key_index,
-                                                            "0".to_string(),
-                                                            settings.key_type.clone(),
-                                                            merge_cache_string);
-                }
-            }
-        }
+        let mut cache_path = PathBuf::from("");
 
         if cache_present {
-            match settings.key_type {
-                KeyType::Unsigned32Integer => write_cache(&cache_path, merge_cache_u32, 0u32),
-                KeyType::Signed32Integer => write_cache(&cache_path, merge_cache_i32, 0i32),
-                KeyType::String => write_cache(&cache_path, merge_cache_string, "0".to_string()),
+            cache_path = settings.cache_path.unwrap();
+
+            if cache_path.exists() {
+                match settings.key_type {
+                    KeyType::Unsigned32Integer => {
+                        merge_cache_u32 = retrieve_from_cache(&cache_path,
+                                                              0u32,
+                                                              settings.key_type.clone(),
+                                                              merge_cache_u32);
+                    },
+                    KeyType::Signed32Integer => {
+                        merge_cache_i32 = retrieve_from_cache(&cache_path,
+                                                              0i32,
+                                                              settings.key_type.clone(),
+                                                              merge_cache_i32);
+                    },
+                    KeyType::String => {
+                        merge_cache_string = retrieve_from_cache(&cache_path,
+                                                                 "0".to_string(),
+                                                                 settings.key_type.clone(),
+                                                                 merge_cache_string);
+                    }
+                }
+            }
+        }
+
+        if glob_present {
+            let glob_choices = settings.glob_choices.unwrap();
+            for glob_choice in glob_choices {
+                match settings.key_type {
+                    KeyType::Unsigned32Integer => {
+                        merge_cache_u32 = retrieve_from_glob(&glob_choice,
+                                                             settings.delimiter,
+                                                             settings.key_index,
+                                                             0u32,
+                                                             settings.key_type.clone(),
+                                                             merge_cache_u32);
+                    },
+                    KeyType::Signed32Integer => {
+                        merge_cache_i32 = retrieve_from_glob(&glob_choice,
+                                                             settings.delimiter,
+                                                             settings.key_index,
+                                                             0i32, settings.key_type.clone(),
+                                                             merge_cache_i32);
+                    },
+                    KeyType::String => {
+                        merge_cache_string = retrieve_from_glob(&glob_choice,
+                                                                settings.delimiter,
+                                                                settings.key_index,
+                                                                "0".to_string(),
+                                                                settings.key_type.clone(),
+                                                                merge_cache_string);
+                    }
+                }
             }
 
-            // Bail early as glob + cache == don't perform merge
-            return;
-        }
-    }
+            if cache_present {
+                match settings.key_type {
+                    KeyType::Unsigned32Integer => write_cache(&cache_path, merge_cache_u32, 0u32),
+                    KeyType::Signed32Integer => write_cache(&cache_path, merge_cache_i32, 0i32),
+                    KeyType::String => write_cache(&cache_path, merge_cache_string, "0".to_string()),
+                }
 
-    // Begin the merge process
-    match settings.key_type {
-        KeyType::Unsigned32Integer => begin_merge(merge_cache_u32, settings.key_start, settings.key_end, true),
-        KeyType::Signed32Integer => begin_merge(merge_cache_i32, settings.key_start, settings.key_end, true),
-        KeyType::String => begin_merge(merge_cache_string, settings.key_start, settings.key_end, true),
+                // Bail early as glob + cache == don't perform merge
+                return;
+            }
+        }
+
+        // Begin the merge process
+        match settings.key_type {
+            KeyType::Unsigned32Integer => begin_merge(merge_cache_u32, settings.key_start, settings.key_end, true),
+            KeyType::Signed32Integer => begin_merge(merge_cache_i32, settings.key_start, settings.key_end, true),
+            KeyType::String => begin_merge(merge_cache_string, settings.key_start, settings.key_end, true),
+        }
     }
 }

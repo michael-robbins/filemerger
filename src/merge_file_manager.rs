@@ -13,7 +13,7 @@ use merge_file::MergeFile;
 use merge_file::Mergeable;
 use settings::KeyType;
 
-/// A MergeFile manager that maintains an internal cache and will perform the merge over all added files.
+/// A `MergeFile` manager that maintains an internal cache and will perform the merge over all added files.
 ///
 /// The idea is you add various files into the cache, configuring a delimiter and the column to perform
 /// the merge on. Then you either write a new cache file to be used later, or you perform the merge.
@@ -141,7 +141,7 @@ impl MergeFileManager {
         where T: Mergeable, T::Err: fmt::Debug {
         let mut files_to_delete: Vec<String> = vec!();
 
-        for (_, merge_file) in cache.iter_mut() {
+        for merge_file in cache.values_mut() {
             if merge_file.fast_forward(&merge_start).is_err() {
                 files_to_delete.push(merge_file.filename.clone());
             }
@@ -171,81 +171,52 @@ impl MergeFileManager {
         let mut discarded = Vec::new();
         let mut lines_emitted = 0;
         let mut lines_emitted_since_last_checkpoint;
-        let mut checkpoint = time::Instant::now();
+        let mut checkpoint;
 
-        if merge_end.is_some() {
-            let merge_end = merge_end.unwrap().parse::<T>().unwrap();
-            info!("Beginning merge -> {}", merge_end);
+        let merge_end_set = merge_end.is_some();
+        let merge_end_key;
 
-            while let Some(mut next_file) = heap.pop() {
-                // Report on the line or EOF the file and add it to the discarded pile
-                if let Some(result) = next_file.next() {
-                    // Check if the line has exceeded the merge_end key
-                    if result > merge_end {
-                        info!("MergeFile<{}> has hit end bound ({}>{}), discarding from cache", next_file.filename, result, merge_end);
-                        discarded.push(next_file);
-                    } else {
-                        // Print the line (if required) then push the MergeFile back into the heap
-                        if print_merge_output {
-                            println!("{}", next_file.line);
-                        }
-
-                        heap.push(next_file);
-
-                        lines_emitted += 1;
-                        if lines_emitted % 10000 == 0 {
-                            // Perform checkpoint
-                            let now = time::Instant::now();
-                            let duration = now.duration_since(checkpoint).as_secs();
-                            checkpoint = now;
-                            lines_emitted_since_last_checkpoint = lines_emitted;
-                            info!("{}", duration);
-                            let lines_per_second;
-                            if duration < 1 {
-                                lines_per_second = lines_emitted_since_last_checkpoint;
-                            } else {
-                                lines_per_second = lines_emitted_since_last_checkpoint / duration;
-                            }
-                            info!("Processed {} lines @ {}/s", lines_emitted, lines_per_second);
-                        }
-                    }
-                } else {
-                    info!("We hit EOF for {} with a final merge key of {}", next_file.filename, next_file.ending_merge_key);
-                    discarded.push(next_file);
-                }
-            }
+        if merge_end_set {
+            merge_end_key = merge_end.unwrap().parse::<T>().unwrap();
+            info!("Beginning merge -> {}", merge_end_key);
         } else {
+            merge_end_key = "".parse::<T>().unwrap();
             info!("Beginning merge -> EOF");
+        }
 
-            while let Some(mut next_file) = heap.pop() {
-                // Report on the line or EOF the file and add it to the discarded pile
-                if let Some(_) = next_file.next() {
-                    if print_merge_output {
-                        println!("{}", next_file.line);
-                    }
-
-                    heap.push(next_file);
-
-                    lines_emitted += 1;
-                    if lines_emitted % 10000 == 0 {
-                        // Perform checkpoint
-                        let now = time::Instant::now();
-                        let duration = now.duration_since(checkpoint).as_secs();
-                        checkpoint = now;
-                        lines_emitted_since_last_checkpoint = lines_emitted;
-                        info!("{}", duration);
-                        let lines_per_second;
-                        if duration < 1 {
-                            lines_per_second = lines_emitted_since_last_checkpoint;
-                        } else {
-                            lines_per_second = lines_emitted_since_last_checkpoint / duration;
-                        }
-                        info!("Processed {} lines @ {}/s", lines_emitted, lines_per_second);
-                    }
-                } else {
-                    info!("We hit EOF for {} with a final merge key of {}", next_file.filename, next_file.ending_merge_key);
+        while let Some(mut next_file) = heap.pop() {
+            // Report on the line or EOF the file and add it to the discarded pile
+            if let Some(result) = next_file.next() {
+                // Check if the line has exceeded the merge_end key
+                if merge_end_set && result > merge_end_key {
+                    info!("MergeFile<{}> has hit end bound ({}>{}), discarding from cache", next_file.filename, result, merge_end_key);
                     discarded.push(next_file);
+                    continue
                 }
+
+                // Print the line (if required) then push the MergeFile back into the heap
+                if print_merge_output {
+                    println!("{}", next_file.line);
+                }
+
+                heap.push(next_file);
+
+                lines_emitted += 1;
+                if lines_emitted % 10000 == 0 {
+                    let now = time::Instant::now();
+                    checkpoint = now;
+                    lines_emitted_since_last_checkpoint = lines_emitted;
+
+                    let mut duration = now.duration_since(checkpoint).as_secs();
+                    if duration < 1 {
+                        duration = 1
+                    }
+
+                    info!("Processed {} lines @ {}/s", lines_emitted, lines_emitted_since_last_checkpoint / duration);
+                }
+            } else {
+                info!("We hit EOF for {} with a final merge key of {}", next_file.filename, next_file.ending_merge_key);
+                discarded.push(next_file);
             }
         }
 
@@ -277,7 +248,6 @@ impl MergeFileManager {
         merge_files.sort();
 
         for mut merge_file in merge_files {
-
             if merge_file.ending_merge_key == default_key {
                 info!("MergeFile {} was loaded from glob, fastwarding to EOF", &merge_file);
                 merge_file.fast_forward_to_end();
