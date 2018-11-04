@@ -150,7 +150,7 @@ impl<T: Mergeable> Iterator for MergeFile<T> where T::Err: fmt::Debug {
     }
 }
 
-impl<T: fmt::Debug> fmt::Debug for MergeFile<T> {
+impl<T: fmt::Display> fmt::Debug for MergeFile<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.filename)
     }
@@ -162,23 +162,23 @@ impl<T: fmt::Display> fmt::Display for MergeFile<T> {
     }
 }
 
-impl<T: cmp::Ord> cmp::Ord for MergeFile<T> {
+impl<T: cmp::Ord + fmt::Display> cmp::Ord for MergeFile<T> {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         if self.current_merge_key > other.current_merge_key {
-            return cmp::Ordering::Less;
-        } else if self.current_merge_key < other.current_merge_key {
             return cmp::Ordering::Greater;
+        } else if self.current_merge_key < other.current_merge_key {
+            return cmp::Ordering::Less;
         }
         cmp::Ordering::Equal
     }
 }
 
-impl<T: cmp::PartialOrd> cmp::PartialOrd for MergeFile<T> {
+impl<T: cmp::PartialOrd + fmt::Display> cmp::PartialOrd for MergeFile<T> {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         if self.current_merge_key > other.current_merge_key {
-            return Some(cmp::Ordering::Less);
-        } else if self.current_merge_key < other.current_merge_key {
             return Some(cmp::Ordering::Greater);
+        } else if self.current_merge_key < other.current_merge_key {
+            return Some(cmp::Ordering::Less);
         }
         Some(cmp::Ordering::Equal)
     }

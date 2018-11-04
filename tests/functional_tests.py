@@ -3,7 +3,7 @@
 #
 # These are the functional tests for the file merger
 # Currently running some dodgy home-made test runner
-# Plan is to move this crap over to nosetests or something similar
+# Plan is to move this crap over to a rust test frame
 #
 
 import os
