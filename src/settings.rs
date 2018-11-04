@@ -125,7 +125,7 @@ impl MergeSettingsParser {
             _ => {env::set_var("RUST_LOG", "trace")}, // Provided > 2 -v flags
         }
 
-        env_logger::init().unwrap();
+        env_logger::init();
 
         debug!("Applied log level: {}", env::var("RUST_LOG").unwrap());
     }
