@@ -136,14 +136,13 @@ impl MergeSettingsParser {
             return Err("We need a --delimiter parameter")
         }
 
-        let delimiter_char = self.matches.opt_str("delimiter").unwrap().chars().next().unwrap();
-        let delimiter_string = delimiter_char.to_string();
-
-        if delimiter_string.len() > 1 {
-            return Err("Delimiter can only be a single character")
+        match self.matches.opt_str("delimiter") {
+            Some(ref x) if x == "tsv" => Ok('\t'),
+            Some(ref x) if x == "csv" => Ok(','),
+            Some(ref x) if x == "psv" => Ok('|'),
+            Some(ref x) if x.len() == 1 => Ok(x.chars().next().unwrap()),
+            _ => Err("Delimiter can only be a single character")
         }
-
-        Ok(delimiter_char)
     }
 
     fn parse_key_index(&self) -> Result<usize, &str> {

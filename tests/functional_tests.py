@@ -115,7 +115,7 @@ tests.append({
     NAME: "Build a cache based of valid data files",
     TEST_TYPE: BUILD_CACHE,
     BINARY: "../target/debug/file-merger",
-    DATA_DELIMITER: '\\\t',
+    DATA_DELIMITER: 'tsv',
     DATA_INDEX: "0",
     DATA_GLOB: os.path.realpath(os.path.join(os.getcwd(), "./files/data_files/data?.tsv")),
     DATA_CACHE: "./test1.cache.tmp",
@@ -125,7 +125,7 @@ tests.append({
     NAME: "Merge files with a valid cache",
     TEST_TYPE: MERGE_FILES_FROM_CACHE,
     BINARY: "../target/debug/file-merger",
-    DATA_DELIMITER: "\\\t",
+    DATA_DELIMITER: "tsv",
     DATA_INDEX: "0",
     DATA_CACHE: "./files/cache_files/test2.cache",
     DATA_OUTPUT: "./files/output_files/test2.output",
@@ -137,7 +137,7 @@ tests.append({
     NAME: "Merge files directly from valid data files",
     TEST_TYPE: MERGE_FILES_FROM_GLOB,
     BINARY: "../target/debug/file-merger",
-    DATA_DELIMITER: "\\\t",
+    DATA_DELIMITER: "tsv",
     DATA_INDEX: "0",
     DATA_GLOB: os.path.realpath(os.path.join(os.getcwd(), "./files/data_files/data?.tsv")),
     DATA_OUTPUT: "./files/output_files/test3.output",
@@ -161,7 +161,7 @@ for test in tests:
         run_test(context=test)
         results.append((True, test[NAME]))
         print(".", end="")
-    except AssertionError:
+    except AssertionError as e:
         results.append((False, test[NAME]))
         print("F", end="")
 
